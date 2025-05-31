@@ -10,41 +10,83 @@ from telegram.ext import (
     filters,
 )
 
+# Fix for nested event loops (e.g., on Render.com)
 nest_asyncio.apply()
 
 TOKEN = os.getenv("TOKEN")
 
 # ===== CONFIGURATION =====
-YOUR_TELEGRAM_ID = 911386241  # Replace with your actual Telegram user ID
-OWNER_USERNAME = "lRonHiide"  # Without @
-DEFAULT_GROUP_ID = -1002685452717  # Replace with YOUR group ID
+DEFAULT_GROUP_ID = -1002685452717  # Replace with your default group ID
+OWNER_TELEGRAM_ID = 911386241       # For allowgroup/demote/etc if needed later
+OWNER_USERNAME = "lRonHiide"         # Optional: for messages
 # =========================
 
 # Runtime data stores
-allowed_group_ids = {DEFAULT_GROUP_ID}  # Start with your group already allowed
-banned_users = {}  # {user_id: reason}
-known_usernames = {}  # {user_id: username}
+allowed_group_ids = {DEFAULT_GROUP_ID}  # Start with your default group already allowed
+banned_users = {}                        # {user_id: reason}
+known_usernames = {}                     # {user_id: username}
 
-# Helper: Check if user is authorized
-async def is_authorized_user(user_id):
-    return user_id == YOUR_TELEGRAM_ID
+# === OWNER COMMANDS (Still restricted to owner) ===
 
-# Helper: Unauthorized response
-async def unauthorized(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        f"🔒 Only the owner can perform this action.\n"
-        f"Contact @{OWNER_USERNAME} for assistance."
-    )
+async def allow_group(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if user.id != OWNER_TELEGRAM_ID:
+        await update.message.reply_text("🔒 Only the owner can add groups.")
+        return
 
-# === OWNER COMMANDS ===
+    if len(context.args) != 1:
+        return await update.message.reply_text("❌ Usage: /allowgroup <group_id>")
+
+    try:
+        group_id = int(context.args[0])
+    except ValueError:
+        return await update.message.reply_text("❌ Invalid group ID.")
+
+    if group_id in allowed_group_ids:
+        return await update.message.reply_text(f"⚠️ Group `{group_id}` is already allowed.")
+
+    allowed_group_ids.add(group_id)
+    await update.message.reply_text(f"✅ Group `{group_id}` has been added.")
+    print(f"[INFO] Allowed groups: {allowed_group_ids}")
+
+async def remove_group(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if user.id != OWNER_TELEGRAM_ID:
+        await update.message.reply_text("🔒 Only the owner can remove groups.")
+        return
+
+    if len(context.args) != 1:
+        return await update.message.reply_text("❌ Usage: /removegroup <group_id>")
+
+    try:
+        group_id = int(context.args[0])
+    except ValueError:
+        return await update.message.reply_text("❌ Invalid group ID.")
+
+    if group_id == DEFAULT_GROUP_ID:
+        return await update.message.reply_text("🚫 Cannot remove the default group.")
+
+    if group_id in allowed_group_ids:
+        allowed_group_ids.remove(group_id)
+        await update.message.reply_text(f"✅ Group `{group_id}` has been removed.")
+    else:
+        await update.message.reply_text(f"⚠️ Group `{group_id}` is not in the list.")
+
+async def list_groups(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if user.id != OWNER_TELEGRAM_ID:
+        return await update.message.reply_text("🔒 Only the owner can view group list.")
+
+    if not allowed_group_ids:
+        return await update.message.reply_text("📋 No groups are currently allowed.")
+
+    group_list = "\n".join(str(gid) for gid in allowed_group_ids)
+    await update.message.reply_text(f"📋 Allowed Groups:\n```\n{group_list}\n```", parse_mode="MarkdownV2")
+
+# === PUBLIC ADMIN FEATURES (Any user in allowed group can use) ===
 
 async def activate(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
-    user = update.effective_user
-
-    if not await is_authorized_user(user.id):
-        return await unauthorized(update, context)
-
     if chat.id not in allowed_group_ids:
         return await update.message.reply_text(
             f"🔒 This group is not authorized.\n"
@@ -55,32 +97,22 @@ async def activate(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def total_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
-    user = update.effective_user
-
     if chat.id not in allowed_group_ids:
         return await update.message.reply_text(
             f"🔒 This group is not authorized.\n"
             f"Please contact @{OWNER_USERNAME} to allow this group first."
         )
-
-    if not await is_authorized_user(user.id):
-        return await unauthorized(update, context)
 
     count = await context.bot.get_chat_member_count(chat.id)
     await update.message.reply_text(f"👥 Total users in this group: {count}")
 
 async def user_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
-    user = update.effective_user
-
     if chat.id not in allowed_group_ids:
         return await update.message.reply_text(
             f"🔒 This group is not authorized.\n"
             f"Please contact @{OWNER_USERNAME} to allow this group first."
         )
-
-    if not await is_authorized_user(user.id):
-        return await unauthorized(update, context)
 
     reply = update.message.reply_to_message
     if not reply:
@@ -107,64 +139,10 @@ async def user_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await update.message.reply_text(info, parse_mode="HTML")
 
-# === ADMIN COMMANDS (Owner-only) ===
-
-async def allow_group(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await is_authorized_user(update.effective_user.id):
-        return await unauthorized(update, context)
-
-    if len(context.args) != 1:
-        return await update.message.reply_text("❌ Usage: /allowgroup <group_id>")
-
-    try:
-        group_id = int(context.args[0])
-    except ValueError:
-        return await update.message.reply_text("❌ Invalid group ID.")
-
-    if group_id in allowed_group_ids:
-        return await update.message.reply_text(f"⚠️ Group `{group_id}` is already allowed.")
-
-    allowed_group_ids.add(group_id)
-    await update.message.reply_text(f"✅ Group `{group_id}` has been added.")
-    print(f"[INFO] Allowed groups: {allowed_group_ids}")
-
-async def remove_group(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await is_authorized_user(update.effective_user.id):
-        return await unauthorized(update, context)
-
-    if len(context.args) != 1:
-        return await update.message.reply_text("❌ Usage: /removegroup <group_id>")
-
-    try:
-        group_id = int(context.args[0])
-    except ValueError:
-        return await update.message.reply_text("❌ Invalid group ID.")
-
-    if group_id == DEFAULT_GROUP_ID:
-        return await update.message.reply_text("🚫 Cannot remove the default group.")
-
-    if group_id in allowed_group_ids:
-        allowed_group_ids.remove(group_id)
-        await update.message.reply_text(f"✅ Group `{group_id}` has been removed.")
-    else:
-        await update.message.reply_text(f"⚠️ Group `{group_id}` is not in the list.")
-
-async def list_groups(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await is_authorized_user(update.effective_user.id):
-        return await unauthorized(update, context)
-
-    if not allowed_group_ids:
-        return await update.message.reply_text("📋 No groups are currently allowed.")
-
-    group_list = "\n".join(str(gid) for gid in allowed_group_ids)
-    await update.message.reply_text(f"📋 Allowed Groups:\n```\n{group_list}\n```", parse_mode="MarkdownV2")
-
-# === GROUP ADMIN FEATURES (Allowed in allowed groups only) ===
+# === GROUP ADMIN FEATURES (Anyone in allowed group can use) ===
 
 async def ban_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
-    user = update.effective_user
-
     if chat.id not in allowed_group_ids:
         return await update.message.reply_text(
             f"🔒 This bot cannot be used here. Contact @{OWNER_USERNAME} for access."
@@ -185,8 +163,6 @@ async def ban_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def unban_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
-    user = update.effective_user
-
     if chat.id not in allowed_group_ids:
         return await update.message.reply_text(
             f"🔒 This bot cannot be used here. Contact @{OWNER_USERNAME} for access."
@@ -207,10 +183,21 @@ async def unban_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.unban_chat_member(chat.id, target_id)
     await update.message.reply_text(f"✅ User `{target_id}` has been unbanned.")
 
+async def list_banned(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat = update.effective_chat
+    if chat.id not in allowed_group_ids:
+        return await update.message.reply_text(
+            f"🔒 This bot cannot be used here. Contact @{OWNER_USERNAME} for access."
+        )
+
+    if not banned_users:
+        return await update.message.reply_text("📋 No users are currently banned.")
+
+    banned_list = "\n".join([f"{uid}: {reason}" for uid, reason in banned_users.items()])
+    await update.message.reply_text(f"🚫 Banned Users:\n```\n{banned_list}\n```", parse_mode="MarkdownV2")
+
 async def mute_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
-    user = update.effective_user
-
     if chat.id not in allowed_group_ids:
         return await update.message.reply_text(
             f"🔒 This bot cannot be used here. Contact @{OWNER_USERNAME} for access."
@@ -231,8 +218,6 @@ async def mute_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def unmute_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
-    user = update.effective_user
-
     if chat.id not in allowed_group_ids:
         return await update.message.reply_text(
             f"🔒 This bot cannot be used here. Contact @{OWNER_USERNAME} for access."
@@ -253,8 +238,6 @@ async def unmute_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def promote_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
-    user = update.effective_user
-
     if chat.id not in allowed_group_ids:
         return await update.message.reply_text(
             f"🔒 This bot cannot be used here. Contact @{OWNER_USERNAME} for access."
@@ -273,8 +256,6 @@ async def promote_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def demote_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
-    user = update.effective_user
-
     if chat.id not in allowed_group_ids:
         return await update.message.reply_text(
             f"🔒 This bot cannot be used here. Contact @{OWNER_USERNAME} for access."
@@ -349,8 +330,8 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
         print(f"🚨 Error occurred: {exception}")
     if "Conflict" in str(exception):
         print("⚠️ Conflict detected: Another instance of the bot may be running.")
-        if update and update.effective_message:
-            await update.effective_message.reply_text(
+        if update and getattr(update, "message", None):
+            await update.message.reply_text(
                 "⚠️ Conflict: Another instance of the bot is already running. "
                 "Make sure only one instance is active."
             )
@@ -364,19 +345,18 @@ async def main():
         print(f"Failed to initialize bot: {e}")
         return
 
-    # Register owner commands
-    app.add_handler(CommandHandler("activate", activate))
-    app.add_handler(CommandHandler("totalusers", total_users))
-    app.add_handler(CommandHandler("userinfo", user_info))
-
-    # Register admin commands
+    # Owner-only commands
     app.add_handler(CommandHandler("allowgroup", allow_group))
     app.add_handler(CommandHandler("removegroup", remove_group))
     app.add_handler(CommandHandler("listgroups", list_groups))
 
-    # Register group admin commands
+    # Public commands (anyone in allowed group can use)
+    app.add_handler(CommandHandler("activate", activate))
+    app.add_handler(CommandHandler("totalusers", total_users))
+    app.add_handler(CommandHandler("userinfo", user_info))
     app.add_handler(CommandHandler("ban", ban_user))
     app.add_handler(CommandHandler("unban", unban_user))
+    app.add_handler(CommandHandler("listbanned", list_banned))
     app.add_handler(CommandHandler("mute", mute_user))
     app.add_handler(CommandHandler("unmute", unmute_user))
     app.add_handler(CommandHandler("promote", promote_user))
