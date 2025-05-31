@@ -41,16 +41,30 @@ async def unauthorized(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def activate(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     user = update.effective_user
-    if chat.id not in allowed_group_ids or not await is_authorized_user(user.id):
-        return
+
+    if chat.id not in allowed_group_ids:
+        return await update.message.reply_text(
+            f"🔒 This group is not authorized.\n"
+            f"Please contact @{OWNER_USERNAME} to allow this group first."
+        )
+
+    if not await is_authorized_user(user.id):
+        return await unauthorized(update, context)
 
     await update.message.reply_text("🤖 Bot activated! Use /help to see available commands.")
 
 async def total_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     user = update.effective_user
-    if chat.id not in allowed_group_ids or not await is_authorized_user(user.id):
-        return
+
+    if chat.id not in allowed_group_ids:
+        return await update.message.reply_text(
+            f"🔒 This group is not authorized.\n"
+            f"Please contact @{OWNER_USERNAME} to allow this group first."
+        )
+
+    if not await is_authorized_user(user.id):
+        return await unauthorized(update, context)
 
     count = await context.bot.get_chat_member_count(chat.id)
     await update.message.reply_text(f"👥 Total users in this group: {count}")
@@ -58,8 +72,15 @@ async def total_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def user_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     user = update.effective_user
-    if chat.id not in allowed_group_ids or not await is_authorized_user(user.id):
-        return
+
+    if chat.id not in allowed_group_ids:
+        return await update.message.reply_text(
+            f"🔒 This group is not authorized.\n"
+            f"Please contact @{OWNER_USERNAME} to allow this group first."
+        )
+
+    if not await is_authorized_user(user.id):
+        return await unauthorized(update, context)
 
     reply = update.message.reply_to_message
     if not reply:
@@ -86,7 +107,7 @@ async def user_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await update.message.reply_text(info, parse_mode="HTML")
 
-# === ADMIN COMMANDS ===
+# === ADMIN COMMANDS (OWNER-ONLY) ===
 
 async def allow_group(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_authorized_user(update.effective_user.id):
@@ -132,13 +153,14 @@ async def list_groups(update: Update, context: ContextTypes.DEFAULT_TYPE):
     group_list = "\n".join(str(gid) for gid in allowed_group_ids)
     await update.message.reply_text(f"📋 Allowed Groups:\n```\n{group_list}\n```", parse_mode="MarkdownV2")
 
-# === GROUP ADMIN FEATURES ===
+# === GROUP ADMIN FEATURES (ALL USERS CAN USE THESE IN ALLOWED GROUPS) ===
 
 async def ban_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
-    user = update.effective_user
-    if chat.id not in allowed_group_ids or not await is_authorized_user(user.id):
-        return
+    if chat.id not in allowed_group_ids:
+        return await update.message.reply_text(
+            f"🔒 This bot cannot be used here. Contact @{OWNER_USERNAME} for access."
+        )
 
     if not context.args:
         return await update.message.reply_text("❌ Usage: /ban <user_id> [reason]")
@@ -155,9 +177,10 @@ async def ban_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def unban_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
-    user = update.effective_user
-    if chat.id not in allowed_group_ids or not await is_authorized_user(user.id):
-        return
+    if chat.id not in allowed_group_ids:
+        return await update.message.reply_text(
+            f"🔒 This bot cannot be used here. Contact @{OWNER_USERNAME} for access."
+        )
 
     if not context.args or len(context.args) != 1:
         return await update.message.reply_text("❌ Usage: /unban <user_id>")
@@ -176,9 +199,10 @@ async def unban_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def list_banned(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
-    user = update.effective_user
-    if chat.id not in allowed_group_ids or not await is_authorized_user(user.id):
-        return
+    if chat.id not in allowed_group_ids:
+        return await update.message.reply_text(
+            f"🔒 This bot cannot be used here. Contact @{OWNER_USERNAME} for access."
+        )
 
     if not banned_users:
         return await update.message.reply_text("📋 No users are currently banned.")
@@ -188,9 +212,10 @@ async def list_banned(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def mute_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
-    user = update.effective_user
-    if chat.id not in allowed_group_ids or not await is_authorized_user(user.id):
-        return
+    if chat.id not in allowed_group_ids:
+        return await update.message.reply_text(
+            f"🔒 This bot cannot be used here. Contact @{OWNER_USERNAME} for access."
+        )
 
     if not context.args or len(context.args) != 1:
         return await update.message.reply_text("❌ Usage: /mute <user_id>")
@@ -207,9 +232,10 @@ async def mute_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def unmute_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
-    user = update.effective_user
-    if chat.id not in allowed_group_ids or not await is_authorized_user(user.id):
-        return
+    if chat.id not in allowed_group_ids:
+        return await update.message.reply_text(
+            f"🔒 This bot cannot be used here. Contact @{OWNER_USERNAME} for access."
+        )
 
     if not context.args or len(context.args) != 1:
         return await update.message.reply_text("❌ Usage: /unmute <user_id>")
@@ -226,9 +252,10 @@ async def unmute_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def promote_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
-    user = update.effective_user
-    if chat.id not in allowed_group_ids or not await is_authorized_user(user.id):
-        return
+    if chat.id not in allowed_group_ids:
+        return await update.message.reply_text(
+            f"🔒 This bot cannot be used here. Contact @{OWNER_USERNAME} for access."
+        )
 
     if not context.args or len(context.args) != 1:
         return await update.message.reply_text("❌ Usage: /promote <user_id>")
@@ -243,9 +270,10 @@ async def promote_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def demote_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
-    user = update.effective_user
-    if chat.id not in allowed_group_ids or not await is_authorized_user(user.id):
-        return
+    if chat.id not in allowed_group_ids:
+        return await update.message.reply_text(
+            f"🔒 This bot cannot be used here. Contact @{OWNER_USERNAME} for access."
+        )
 
     if not context.args or len(context.args) != 1:
         return await update.message.reply_text("❌ Usage: /demote <user_id>")
@@ -265,10 +293,13 @@ async def demote_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def greet_new_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
-    if chat_id not in allowed_group_ids:
-        return
-
     for new_user in update.message.new_chat_members:
+        if chat_id not in allowed_group_ids:
+            return await update.message.reply_text(
+                f"👋 Hello! I'm currently disabled in this group. "
+                f"Please contact @{OWNER_USERNAME} to activate me here."
+            )
+
         welcome_msg = (
             f"👋 Welcome, {new_user.first_name}!\n"
             f"ID: {new_user.id}\n"
@@ -313,7 +344,7 @@ async def detect_username_change(update: Update, context: ContextTypes.DEFAULT_T
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     exception = context.error
     if isinstance(exception, Exception):
-        print(f"Error occurred: {exception}")
+        print(f"🚨 Error occurred: {exception}")
     if "Conflict" in str(exception):
         print("⚠️ Conflict detected: Another instance of the bot may be running.")
         if update and update.message:
@@ -336,19 +367,17 @@ async def main():
     app.add_handler(CommandHandler("totalusers", total_users))
     app.add_handler(CommandHandler("userinfo", user_info))
 
-    # Register admin commands
+    # Register admin commands (owner only)
     app.add_handler(CommandHandler("allowgroup", allow_group))
     app.add_handler(CommandHandler("removegroup", remove_group))
     app.add_handler(CommandHandler("listgroups", list_groups))
 
-    # Register group admin commands
+    # Register group admin commands (anyone in allowed group can use)
     app.add_handler(CommandHandler("ban", ban_user))
     app.add_handler(CommandHandler("unban", unban_user))
     app.add_handler(CommandHandler("listbanned", list_banned))
-
     app.add_handler(CommandHandler("mute", mute_user))
     app.add_handler(CommandHandler("unmute", unmute_user))
-
     app.add_handler(CommandHandler("promote", promote_user))
     app.add_handler(CommandHandler("demote", demote_user))
 
