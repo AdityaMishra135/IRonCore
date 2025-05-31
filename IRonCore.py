@@ -17,7 +17,7 @@ TOKEN = os.getenv("TOKEN")
 
 # ===== CONFIGURATION =====
 YOUR_TELEGRAM_ID = 911386241  # Replace with your actual Telegram user ID
-OWNER_USERNAME = "@lRonHiide"  # Optional: for help message
+OWNER_USERNAME = "lRonHiide"  # Optional: for help message
 # =========================
 
 # Runtime data stores
