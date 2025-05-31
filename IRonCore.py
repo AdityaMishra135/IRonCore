@@ -17,7 +17,7 @@ TOKEN = os.getenv("TOKEN")
 
 # ===== CONFIGURATION =====
 YOUR_TELEGRAM_ID = 911386241  # Replace with your actual Telegram user ID
-OWNER_USERNAME = "lRonHiide"  # Optional: for help message
+OWNER_USERNAME = "lRonHiide"  # Without @
 # =========================
 
 # Runtime data stores
@@ -32,11 +32,11 @@ async def is_authorized_user(user_id):
 # Helper: Unauthorized response
 async def unauthorized(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        f"🔒 Only the owner can perform this action.\n"
+        f"🔒 This action is restricted to the owner.\n"
         f"Contact @{OWNER_USERNAME} for assistance."
     )
 
-# === OWNER COMMANDS ===
+# === OWNER COMMANDS (Only YOU can use these) ===
 
 async def activate(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
@@ -107,7 +107,7 @@ async def user_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await update.message.reply_text(info, parse_mode="HTML")
 
-# === ADMIN COMMANDS (OWNER-ONLY) ===
+# === ADMIN COMMANDS (Owner-only) ===
 
 async def allow_group(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_authorized_user(update.effective_user.id):
@@ -153,7 +153,7 @@ async def list_groups(update: Update, context: ContextTypes.DEFAULT_TYPE):
     group_list = "\n".join(str(gid) for gid in allowed_group_ids)
     await update.message.reply_text(f"📋 Allowed Groups:\n```\n{group_list}\n```", parse_mode="MarkdownV2")
 
-# === GROUP ADMIN FEATURES (ALL USERS CAN USE THESE IN ALLOWED GROUPS) ===
+# === GROUP ADMIN FEATURES (All Users Can Use These in Allowed Groups) ===
 
 async def ban_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
@@ -347,8 +347,8 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
         print(f"🚨 Error occurred: {exception}")
     if "Conflict" in str(exception):
         print("⚠️ Conflict detected: Another instance of the bot may be running.")
-        if update and update.message:
-            await update.message.reply_text(
+        if update and update.effective_message:
+            await update.effective_message.reply_text(
                 "⚠️ Conflict: Another instance of the bot is already running. "
                 "Make sure only one instance is active."
             )
