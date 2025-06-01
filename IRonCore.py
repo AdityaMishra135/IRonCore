@@ -41,26 +41,27 @@ async def user_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Please reply to a message to get user info.")
         return
 
-    user = reply.from_user
-    if not user:
+    # Try to get from_user or sender_chat
+    if reply.from_user:
+        user = reply.from_user
+    elif reply.sender_chat:
+        user = reply.sender_chat
+    else:
         await update.message.reply_text("❌ Unable to retrieve user info.")
         return
 
-    # Check if account is deleted
-    if user.is_deleted:
-        await update.message.reply_text("💀 This user has a deleted account.")
-        return
-
-    # Build response
+    # Build response dynamically based on what type of user it is
     info = (
         f"👤 <b>User Info</b>\n"
         f"ID: {user.id}\n"
-        f"First Name: {user.first_name}\n"
-        f"Last Name: {user.last_name or 'N/A'}\n"
-        f"Username: @{user.username if user.username else 'No username'}\n"
-        f"Is Bot: {'Yes' if user.is_bot else 'No'}\n"
-        f"Language Code: {user.language_code or 'Unknown'}"
+        f"First Name: {getattr(user, 'first_name', 'N/A')}\n"
+        f"Last Name: {getattr(user, 'last_name', 'N/A')}\n"
+        f"Username: @{user.username if getattr(user, 'username', None) else 'No username'}\n"
+        f"Is Bot: {'Yes' if getattr(user, 'is_bot', False) else 'No'}\n"
+        f"Type: {getattr(user, 'type', 'Unknown')}\n"
+        f"Language Code: {getattr(user, 'language_code', 'Unknown')}"
     )
+    
     await update.message.reply_text(info, parse_mode='HTML')
 
 # Handler: Detect username changes in real-time
