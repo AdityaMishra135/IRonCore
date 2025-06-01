@@ -1,7 +1,7 @@
 import os
 import asyncio
 import nest_asyncio
-from telegram import Update
+from telegram import Update, ChatPermissions
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
@@ -10,21 +10,34 @@ from telegram.ext import (
     filters,
 )
 
-# Apply nest_asyncio to avoid event loop issues (especially on Render)
+# Fix for nested event loops (e.g., on Render.com)
 nest_asyncio.apply()
 
 TOKEN = os.getenv("TOKEN")
+
+# ===== CONFIGURATION =====
+YOUR_TELEGRAM_ID = 911386241  # Replace with your actual Telegram user ID
+# =========================
 
 # Dictionary to track known usernames {user_id: username}
 known_usernames = {}
 
 # Helper: Check if username changed
 def has_username_changed(user_id, new_username):
-    if user_id in known_usernames:
-        return known_usernames[user.id] != new_username
-    return False
+    return known_usernames.get(user_id) != new_username
 
-# Command: /activate - Activates the bot
+# Helper: Check if user is admin or owner
+async def is_admin(chat_id, user_id, context):
+    if user_id == YOUR_TELEGRAM_ID:
+        return True
+    try:
+        member = await context.bot.get_chat_member(chat_id, user_id)
+        return member.status in ['administrator', 'creator']
+    except Exception as e:
+        print(f"[ERROR] Could not check admin status: {e}")
+        return False
+
+# Command: /start - Activates the bot
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("🤖 Bot activated! Use /help to see available commands.")
 
@@ -61,7 +74,7 @@ async def user_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Type: {getattr(user, 'type', 'Unknown')}\n"
         f"Language Code: {getattr(user, 'language_code', 'Unknown')}"
     )
-    
+
     await update.message.reply_text(info, parse_mode='HTML')
 
 # Handler: Detect username changes in real-time
@@ -74,10 +87,10 @@ async def detect_username_change(update: Update, context: ContextTypes.DEFAULT_T
         old = known_usernames.get(user.id, "None")
         new = user.username or "Deleted username"
         await update.message.reply_text(
-            f"🔄 User @{old} has changed their username to @{new}!"
+            f"🔄 User @{old} has changed their username to @{new}!",
+            parse_mode='HTML'
         )
 
-    # Update known username
     known_usernames[user.id] = user.username or ""
 
 # Handler: Detect new member joining
@@ -102,16 +115,144 @@ async def farewell_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         await update.message.reply_text(farewell_msg)
 
+# === ADMIN-ONLY COMMANDS ===
+
+async def mute_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat = update.effective_chat
+    user = update.effective_user
+    chat_id = chat.id
+
+    if not await is_admin(chat_id, user.id, context):
+        await update.message.reply_text("❌ This command requires admin rights.")
+        return
+
+    if not context.args or len(context.args) != 1:
+        return await update.message.reply_text("❌ Usage: /mute <user_id>")
+
+    try:
+        target_id = int(context.args[0])
+    except ValueError:
+        return await update.message.reply_text("❌ Invalid user ID.")
+
+    await context.bot.restrict_chat_member(
+        chat.id, target_id, ChatPermissions(can_send_messages=False)
+    )
+    await update.message.reply_text(f"🔇 User `{target_id}` has been muted.")
+
+async def unmute_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat = update.effective_chat
+    user = update.effective_user
+
+    if not await is_admin(chat.id, user.id, context):
+        await update.message.reply_text("❌ This command requires admin rights.")
+        return
+
+    if not context.args or len(context.args) != 1:
+        return await update.message.reply_text("❌ Usage: /unmute <user_id>")
+
+    try:
+        target_id = int(context.args[0])
+    except ValueError:
+        return await update.message.reply_text("❌ Invalid user ID.")
+
+    await context.bot.restrict_chat_member(
+        chat.id, target_id, ChatPermissions(can_send_messages=True)
+    )
+    await update.message.reply_text(f"🔊 User `{target_id}` has been unmuted.")
+
+async def ban_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat = update.effective_chat
+    user = update.effective_user
+
+    if not await is_admin(chat.id, user.id, context):
+        await update.message.reply_text("❌ This command requires admin rights.")
+        return
+
+    if not context.args:
+        return await update.message.reply_text("❌ Usage: /ban <user_id> [reason]")
+
+    try:
+        target_id = int(context.args[0])
+        reason = " ".join(context.args[1:]) or "No reason provided"
+    except ValueError:
+        return await update.message.reply_text("❌ Invalid user ID.")
+
+    await context.bot.ban_chat_member(chat.id, target_id)
+    await update.message.reply_text(f"🚫 User `{target_id}` has been banned. Reason: {reason}")
+
+async def unban_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat = update.effective_chat
+    user = update.effective_user
+
+    if not await is_admin(chat.id, user.id, context):
+        await update.message.reply_text("❌ This command requires admin rights.")
+        return
+
+    if not context.args or len(context.args) != 1:
+        return await update.message.reply_text("❌ Usage: /unban <user_id>")
+
+    try:
+        target_id = int(context.args[0])
+    except ValueError:
+        return await update.message.reply_text("❌ Invalid user ID.")
+
+    await context.bot.unban_chat_member(chat.id, target_id)
+    await update.message.reply_text(f"✅ User `{target_id}` has been unbanned.")
+
+async def promote_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat = update.effective_chat
+    user = update.effective_user
+
+    if not await is_admin(chat.id, user.id, context):
+        await update.message.reply_text("❌ This command requires admin rights.")
+        return
+
+    if not context.args or len(context.args) != 1:
+        return await update.message.reply_text("❌ Usage: /promote <user_id>")
+
+    try:
+        target_id = int(context.args[0])
+    except ValueError:
+        return await update.message.reply_text("❌ Invalid user ID.")
+
+    await context.bot.promote_chat_member(chat.id, target_id)
+    await update.message.reply_text(f"🌟 User `{target_id}` has been promoted to admin.")
+
+async def demote_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat = update.effective_chat
+    user = update.effective_user
+
+    if not await is_admin(chat.id, user.id, context):
+        await update.message.reply_text("❌ This command requires admin rights.")
+        return
+
+    if not context.args or len(context.args) != 1:
+        return await update.message.reply_text("❌ Usage: /demote <user_id>")
+
+    try:
+        target_id = int(context.args[0])
+    except ValueError:
+        return await update.message.reply_text("❌ Invalid user ID.")
+
+    await context.bot.promote_chat_member(
+        chat.id,
+        target_id,
+        ChatPermissions(can_manage_chat=False, can_invite_users=False, can_restrict_members=False)
+    )
+    await update.message.reply_text(f"🔻 User `{target_id}` has been demoted.")
+
 # Global error handler
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     exception = context.error
     if isinstance(exception, Exception):
         print(f"Error occurred: {exception}")
     if "Conflict" in str(exception):
-        await update.message.reply_text(
-            "⚠️ Conflict detected: Another instance of this bot may be running. "
-            "Please ensure only one instance is active."
-        )
+        print("⚠️ Conflict detected: Another instance of the bot may be running.")
+        if update and getattr(update, "message", None):
+            await update.message.reply_text(
+                "⚠️ Conflict: Another instance of the bot is already running. "
+                "Make sure only one instance is active."
+            )
 
 # Main function
 async def main():
@@ -126,10 +267,20 @@ async def main():
     app.add_handler(CommandHandler("totalusers", total_users))
     app.add_handler(CommandHandler("userinfo", user_info))
 
+    # Admin-only commands
+    app.add_handler(CommandHandler("mute", mute_user))
+    app.add_handler(CommandHandler("unmute", unmute_user))
+    app.add_handler(CommandHandler("ban", ban_user))
+    app.add_handler(CommandHandler("unban", unban_user))
+    app.add_handler(CommandHandler("promote", promote_user))
+    app.add_handler(CommandHandler("demote", demote_user))
+
     # Register event handlers
     app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, greet_new_member))
     app.add_handler(MessageHandler(filters.StatusUpdate.LEFT_CHAT_MEMBER, farewell_member))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, detect_username_change))
+
+    # Register error handler
     app.add_error_handler(error_handler)
 
     print("✅ Bot started successfully!")
