@@ -1,18 +1,17 @@
 import os
 import asyncio
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+import logging
+from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
-    CallbackQueryHandler,
-    ContextTypes,
     MessageHandler,
-    filters
+    filters,
+    ContextTypes
 )
 from fastapi import FastAPI
 import uvicorn
 import multiprocessing
-import logging
 
 # Configure logging
 logging.basicConfig(
@@ -30,120 +29,89 @@ web_app = FastAPI()
 def health_check():
     return {"status": "active", "bot": "running"}
 
-# Telegram Bot Functions
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Send welcome message with options"""
+    """Bot introduction with add-to-group button"""
     keyboard = [
-        [InlineKeyboardButton("➕ Add to Group", url=f"https://t.me/{context.bot.username}?startgroup=true")],
-        [InlineKeyboardButton("ℹ️ Bot Info", callback_data="info")]
+        [InlineKeyboardButton("➕ Add to Group", 
+         url=f"https://t.me/{context.bot.username}?startgroup=true")]
     ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
     await update.message.reply_text(
-        "🤖 Welcome to Group Manager Bot!\n\n"
-        "Click below to add me to your group:",
-        reply_markup=reply_markup
+        "🤖 <b>Supergroup Auto-Upgrade Bot</b>\n\n"
+        "I automatically convert any group to supergroup when added!\n"
+        "Just add me to your group and I'll handle the rest.",
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
-async def promote_to_supergroup(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Upgrade group to supergroup and make bot admin"""
-    chat = update.effective_chat
-    user = update.effective_user
-    
-    # Only works in groups (not private chats)
-    if chat.type != "group":
-        await update.message.reply_text("❌ This command only works in regular groups")
-        return
-
-    try:
-        # Step 1: Leave group to trigger upgrade
-        await context.bot.leave_chat(chat.id)
-        
-        # Step 2: Notify creator
-        await context.bot.send_message(
-            user.id,
-            f"🔧 Group upgrade started for {chat.title}\n\n"
-            "1. Telegram will automatically convert it to supergroup\n"
-            "2. Add me back to the new supergroup\n"
-            "3. Make me admin for full features\n\n"
-            f"Group ID: {chat.id}"
-        )
-        
-        logger.info(f"Initiated upgrade for group {chat.id}")
-        
-    except Exception as e:
-        logger.error(f"Upgrade failed: {e}")
-        await update.message.reply_text("⚠️ Upgrade failed. Please try again or contact support.")
-
-
 async def new_chat_members(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle when bot is added to a group"""
+    """Detect when bot is added to a group and trigger upgrade"""
     chat = update.effective_chat
-    for member in update.message.new_chat_members:
-        if member.id == context.bot.id:
-            logger.info(f"Bot added to group: {chat.id}")
-            
+    bot_id = context.bot.id
+    
+    # Check if bot was added
+    if any(member.id == bot_id for member in update.message.new_chat_members):
+        logger.info(f"Bot added to group {chat.id} ({chat.title})")
+        
+        if chat.type == "group":
             try:
-                # Try to upgrade to supergroup
-                if chat.type == "group":
-                    await chat.send_message(
-                        "👋 I'll help manage this group!\n"
-                        "Please make me an admin to unlock all features."
-                    )
+                # Notify group before leaving
+                await update.message.reply_text(
+                    "🔄 <b>Starting Supergroup Upgrade</b>\n\n"
+                    "This group will be upgraded to supergroup automatically.\n"
+                    "Please re-add me to the new supergroup after upgrade.",
+                    parse_mode="HTML"
+                )
+                
+                # Leave to trigger upgrade
+                await context.bot.leave_chat(chat.id)
+                
+                logger.info(f"Triggered upgrade for group {chat.id}")
+                
             except Exception as e:
-                logger.error(f"Error in new_chat_members: {e}")
+                logger.error(f"Upgrade failed for {chat.id}: {e}")
+                await update.message.reply_text(
+                    "⚠️ Upgrade failed. Please make sure I have admin rights."
+                )
 
-async def promote_to_supergroup(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Command to upgrade group to supergroup"""
-    chat = update.effective_chat
-    user = update.effective_user
+async def handle_migration(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle successful group migration"""
+    old_id = update.message.migrate_from_chat_id
+    new_id = update.message.migrate_to_chat_id
     
-    if chat.type == "group":
-        try:
-            # This will automatically upgrade to supergroup
-            await context.bot.leave_chat(chat.id)
-            await context.bot.send_message(
-                user.id,
-                f"✅ Group {chat.title} needs to be upgraded.\n"
-                f"Please add me again to the new supergroup."
-            )
-        except Exception as e:
-            logger.error(f"Error promoting to supergroup: {e}")
-            await update.message.reply_text("❌ Failed to upgrade group")
-
-async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle button presses"""
-    query = update.callback_query
-    await query.answer()
+    logger.info(f"Group migrated from {old_id} to supergroup {new_id}")
     
-    if query.data == "info":
-        await query.edit_message_text(
-            "🤖 <b>Group Manager Bot</b>\n\n"
-            "Features:\n"
-            "- Auto group management\n"
-            "- Admin tools\n"
-            "- Spam protection\n\n"
-            "Make me admin for full features!",
-            parse_mode="HTML"
-        )
+    # Send welcome message in new supergroup
+    await context.bot.send_message(
+        new_id,
+        "🎉 <b>Upgrade Complete!</b>\n\n"
+        "This is now a supergroup with all features unlocked!\n\n"
+        "Please add @{context.bot.username} back and make me admin "
+        "for full management capabilities.",
+        parse_mode="HTML"
+    )
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     """Log errors"""
     logger.error(f"Update {update} caused error {context.error}")
 
 def run_bot():
-    """Run Telegram bot with proper event loop management"""
+    """Run Telegram bot with auto-upgrade feature"""
     async def bot_main():
         app = ApplicationBuilder().token(TOKEN).build()
         
         # Add handlers
         app.add_handler(CommandHandler("start", start))
-        app.add_handler(CommandHandler("upgrade", promote_to_supergroup))
-        app.add_handler(CallbackQueryHandler(button_handler))
-        app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, new_chat_members))
+        app.add_handler(MessageHandler(
+            filters.StatusUpdate.NEW_CHAT_MEMBERS, 
+            new_chat_members
+        ))
+        app.add_handler(MessageHandler(
+            filters.StatusUpdate.MIGRATE,
+            handle_migration
+        ))
         app.add_error_handler(error_handler)
         
-        logger.info("🤖 Starting Telegram bot polling...")
+        logger.info("🤖 Starting bot with auto-upgrade feature...")
         await app.initialize()
         await app.start()
         await app.updater.start_polling()
