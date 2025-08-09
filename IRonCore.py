@@ -1,68 +1,41 @@
+import os
+import asyncio
 from telegram.ext import ApplicationBuilder, CommandHandler
 from fastapi import FastAPI
 import uvicorn
-import os
-import asyncio
-import signal
-import sys
+import multiprocessing
 
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 
 # Telegram Bot
 async def start(update, context):
-    await update.message.reply_text("🚀 Bot is fully operational!")
+    await update.message.reply_text("✅ Bot is working perfectly now!")
 
-# FastAPI App
+# Web Server for Health Checks
 web_app = FastAPI()
 
 @web_app.get("/")
 def health_check():
-    return {"status": "running", "service": "telegram-bot"}
+    return {"status": "active", "bot": "ready"}
 
-async def run_bot():
-    """Run Telegram bot with proper shutdown handling"""
-    app = ApplicationBuilder().token(TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    
-    await app.initialize()
-    await app.start()
-    print("🤖 Bot polling started")
-    
-    try:
-        while True:
-            await asyncio.sleep(1)
-    except asyncio.CancelledError:
-        print("\n🛑 Received shutdown signal")
-        await app.stop()
-        await app.shutdown()
+def run_bot():
+    """Run Telegram bot in polling mode"""
+    async def bot_main():
+        app = ApplicationBuilder().token(TOKEN).build()
+        app.add_handler(CommandHandler("start", start))
+        print("🤖 Bot polling started")
+        await app.run_polling()
 
-def run_web_server():
-    """Run the web server with proper config"""
-    uvicorn.run(
-        app="IRonCore:web_app",
-        host="0.0.0.0",
-        port=8000,
-        reload=False,
-        workers=1
-    )
+    asyncio.run(bot_main())
+
+def run_web():
+    """Run health check server"""
+    uvicorn.run(web_app, host="0.0.0.0", port=8000)
 
 if __name__ == "__main__":
-    # Signal handling for clean shutdown
-    def signal_handler(sig, frame):
-        print("\n🚦 Received termination signal")
-        sys.exit(0)
-    
-    signal.signal(signal.SIGINT, signal_handler)
-    signal.signal(signal.SIGTERM, signal_handler)
-
-    # Start web server in a process
-    from multiprocessing import Process
-    web_process = Process(target=run_web_server)
+    # Start web server in separate process
+    web_process = multiprocessing.Process(target=run_web)
     web_process.start()
     
-    # Run bot in main thread
-    try:
-        asyncio.run(run_bot())
-    finally:
-        web_process.terminate()
-        web_process.join()
+    # Run bot in main process
+    run_bot()
