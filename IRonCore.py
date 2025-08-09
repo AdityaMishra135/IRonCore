@@ -45,6 +45,37 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=reply_markup
     )
 
+async def promote_to_supergroup(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Upgrade group to supergroup and make bot admin"""
+    chat = update.effective_chat
+    user = update.effective_user
+    
+    # Only works in groups (not private chats)
+    if chat.type != "group":
+        await update.message.reply_text("❌ This command only works in regular groups")
+        return
+
+    try:
+        # Step 1: Leave group to trigger upgrade
+        await context.bot.leave_chat(chat.id)
+        
+        # Step 2: Notify creator
+        await context.bot.send_message(
+            user.id,
+            f"🔧 Group upgrade started for {chat.title}\n\n"
+            "1. Telegram will automatically convert it to supergroup\n"
+            "2. Add me back to the new supergroup\n"
+            "3. Make me admin for full features\n\n"
+            f"Group ID: {chat.id}"
+        )
+        
+        logger.info(f"Initiated upgrade for group {chat.id}")
+        
+    except Exception as e:
+        logger.error(f"Upgrade failed: {e}")
+        await update.message.reply_text("⚠️ Upgrade failed. Please try again or contact support.")
+
+
 async def new_chat_members(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle when bot is added to a group"""
     chat = update.effective_chat
