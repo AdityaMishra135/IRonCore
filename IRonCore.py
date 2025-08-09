@@ -75,9 +75,20 @@ async def ban_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
             chat_id=update.effective_chat.id,
             user_id=target.id
         )
-        await update.message.reply_text(f"🚫 Banned {target.full_name} (ID: {target.id})")
+        await update.message.reply_text(
+            f"🚫 <b>Banned:</b> {target.mention_html()} (ID: <code>{target.id}</code>)",
+            parse_mode="HTML"
+        )
     except Exception as e:
-        await update.message.reply_text(f"⚠️ Error: {str(e)}")
+        await update.message.reply_text(
+            f"⚠️ <b>Ban Failed</b>\n\n"
+            f"Error: {str(e)}\n\n"
+            f"Possible reasons:\n"
+            f"- I need admin permissions\n"
+            f"- Target is admin/owner\n"
+            f"- User already left",
+            parse_mode="HTML"
+        )
 
 async def kick_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Kick a user from the group"""
@@ -94,9 +105,20 @@ async def kick_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
             user_id=target.id,
             until_date=int(time.time()) + 60  # 60-second ban = kick
         )
-        await update.message.reply_text(f"👢 Kicked {target.full_name} (ID: {target.id})")
+        await update.message.reply_text(
+            f"👢 <b>Kicked:</b> {target.mention_html()} (ID: <code>{target.id}</code>)",
+            parse_mode="HTML"
+        )
     except Exception as e:
-        await update.message.reply_text(f"⚠️ Error: {str(e)}")
+        await update.message.reply_text(
+            f"⚠️ <b>Kick Failed</b>\n\n"
+            f"Error: {str(e)}\n\n"
+            f"Possible reasons:\n"
+            f"- I need admin permissions\n"
+            f"- Target is admin/owner\n"
+            f"- User already left",
+            parse_mode="HTML"
+        )
 
 async def mute_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Restrict a user from sending messages"""
@@ -118,9 +140,19 @@ async def mute_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 can_add_web_page_previews=False
             )
         )
-        await update.message.reply_text(f"🔇 Muted {target.full_name} (ID: {target.id})")
+        await update.message.reply_text(
+            f"🔇 <b>Muted:</b> {target.mention_html()} (ID: <code>{target.id}</code>)",
+            parse_mode="HTML"
+        )
     except Exception as e:
-        await update.message.reply_text(f"⚠️ Error: {str(e)}")
+        await update.message.reply_text(
+            f"⚠️ <b>Mute Failed</b>\n\n"
+            f"Error: {str(e)}\n\n"
+            f"Possible reasons:\n"
+            f"- I need admin permissions\n"
+            f"- Target is admin/owner",
+            parse_mode="HTML"
+        )
 
 async def user_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Show detailed information about a user"""
@@ -135,14 +167,16 @@ async def user_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         
         join_date = member.joined_date.strftime("%Y-%m-%d %H:%M:%S") if member.joined_date else "Unknown"
+        last_online = member.user.last_online_date.strftime("%Y-%m-%d %H:%M:%S") if hasattr(member.user, 'last_online_date') else "Unknown"
         
         message = (
             f"👤 <b>User Information</b>\n\n"
             f"🆔 ID: <code>{target.id}</code>\n"
-            f"📛 Name: {target.full_name}\n"
+            f"📛 Name: {target.mention_html()}\n"
             f"📅 Joined: {join_date}\n"
+            f"⏱️ Last Online: {last_online}\n"
             f"👑 Status: {member.status}\n"
-            f"🤖 Is Bot: {target.is_bot}\n"
+            f"🤖 Is Bot: {'Yes' if target.is_bot else 'No'}\n"
             f"🔗 Username: @{target.username if target.username else 'N/A'}\n"
             f"📝 Bio: {target.bio if hasattr(target, 'bio') else 'N/A'}"
         )
@@ -150,60 +184,101 @@ async def user_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(message, parse_mode="HTML")
         
     except Exception as e:
-        await update.message.reply_text(f"⚠️ Error getting info: {str(e)}")
+        await update.message.reply_text(
+            f"⚠️ <b>Info Failed</b>\n\n"
+            f"Error: {str(e)}",
+            parse_mode="HTML"
+        )
 
 ### HELPER FUNCTIONS ###
 
 async def is_group_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Check if user is admin in group"""
     if update.effective_chat.type not in ("group", "supergroup"):
+        await update.message.reply_text("❌ This command only works in groups")
         return False
     
     try:
         member = await update.effective_chat.get_member(update.effective_user.id)
-        return member.status in ("administrator", "creator")
+        if member.status not in ("administrator", "creator"):
+            await update.message.reply_text("❌ You need admin rights for this command")
+            return False
+        return True
     except Exception as e:
         logger.error(f"Admin check failed: {e}")
+        await update.message.reply_text("⚠️ Error checking admin status")
         return False
 
 async def get_target_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Get target user from command"""
+    """Robust user targeting with enhanced error handling"""
     try:
-        # If replying to message
+        # Case 1: Command with reply
         if update.message.reply_to_message:
             return update.message.reply_to_message.from_user
-        
-        # If using command with argument
+
+        # Case 2: Command with argument
         if not context.args:
             await update.message.reply_text(
-                "ℹ️ Usage:\n"
+                "🔍 <b>How to target users:</b>\n\n"
                 "1. Reply to user's message with /command\n"
                 "2. /command @username\n"
-                "3. /command 123456 (user ID)"
+                "3. /command 123456789 (user ID)\n\n"
+                "<i>Note: Usernames must be in this chat</i>",
+                parse_mode="HTML"
             )
             return None
+
+        target = context.args[0].strip()
         
-        target = context.args[0]
+        # Remove @ prefix if present
+        target = target.lstrip('@')
         
-        # Remove @ if present
-        if target.startswith('@'):
-            target = target[1:]
-        
-        # Try to resolve user
+        # Try numeric ID first
+        if target.isdigit():
+            try:
+                member = await context.bot.get_chat_member(
+                    chat_id=update.effective_chat.id,
+                    user_id=int(target)
+                )
+                return member.user
+            except ValueError:
+                pass
+
+        # Try username resolution
         try:
-            member = await context.bot.get_chat_member(
-                chat_id=update.effective_chat.id,
-                user_id=target
-            )
-            return member.user
+            # Search through chat members
+            async for member in context.bot.get_chat_members(update.effective_chat.id):
+                if member.user.username and member.user.username.lower() == target.lower():
+                    return member.user
+                
+                if str(member.user.id) == target:
+                    return member.user
+
+            raise ValueError(f"User '@{target}' not found in this chat")
+            
         except Exception as e:
-            await update.message.reply_text(f"❌ User not found: {target}")
-            logger.error(f"User resolution failed: {e}")
+            await update.message.reply_text(
+                f"❌ <b>User not found</b>\n\n"
+                f"Couldn't find '@{target}' in this group.\n"
+                f"Make sure:\n"
+                f"1. They're a member\n"
+                f"2. You spelled the username correctly\n"
+                f"3. They have a username set",
+                parse_mode="HTML"
+            )
+            logger.warning(f"User resolution failed for {target}: {str(e)}")
             return None
 
     except Exception as e:
-        logger.error(f"Target error: {e}")
-        await update.message.reply_text("⚠️ Error processing target")
+        logger.error(f"Target error: {str(e)}", exc_info=True)
+        await update.message.reply_text(
+            "⚠️ <b>Targeting Error</b>\n\n"
+            "Please try:\n"
+            "1. Replying to the user's message\n"
+            "2. Using their numeric ID\n"
+            "3. Checking the username spelling",
+            parse_mode="HTML"
+        )
         return None
 
 ### BOT SETUP ###
@@ -246,7 +321,7 @@ def run_bot():
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     """Log errors"""
-    logger.error(f"Error: {context.error}")
+    logger.error(f"Error: {context.error}", exc_info=True)
 
 def run_web_server():
     """Run health check server"""
