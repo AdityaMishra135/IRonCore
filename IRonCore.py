@@ -1,119 +1,85 @@
 import os
-import asyncio
-from telegram import Update, ChatPermissions
+from dotenv import load_dotenv
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
-    ApplicationBuilder,
+    Application,
     CommandHandler,
+    CallbackQueryHandler,
     MessageHandler,
-    ContextTypes,
     filters,
+    ContextTypes,
 )
 
-# Environment variable for bot token
-TOKEN = os.getenv("TOKEN")
+# Load environment variables
+load_dotenv()
+TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+ADMIN_USER_ID = os.getenv("ADMIN_USER_ID")
 
-# ===== CONFIGURATION =====
-YOUR_TELEGRAM_ID = 911386241  # Replace with your actual Telegram user ID
-# =========================
-
-# Dictionary to track known usernames {user_id: username}
-known_usernames = {}
-
-# Helper: Get target user from reply or args
-async def get_target_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    reply = update.message.reply_to_message
-    if reply and reply.from_user:
-        return reply.from_user.id
-    elif len(context.args) >= 1:
-        try:
-            return int(context.args[0])
-        except ValueError:
-            await update.message.reply_text("❌ Invalid user ID.")
-            return None
-    else:
-        await update.message.reply_text(
-            "❌ Usage: /command <user_id> or reply to a message"
-        )
-        return None
-
-# Helper: Check if user is admin or owner
-async def is_admin_or_owner(chat_id, user_id, context):
-    if user_id == YOUR_TELEGRAM_ID:
-        return True
-    try:
-        member = await context.bot.get_chat_member(chat_id, user_id)
-        return member.status in ['administrator', 'creator']
-    except Exception as e:
-        print(f"[ERROR] Could not fetch chat member: {e}")
-        return False
-
-# === START & BASIC COMMANDS ===
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("🤖 Bot activated! Use /help to see available commands.")
-
-async def total_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = update.effective_chat.id
-    count = await context.bot.get_chat_member_count(chat_id)
-    await update.message.reply_text(f"👥 Total users in this group: {count}")
-
-async def user_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    reply = update.message.reply_to_message
-    if not reply:
-        await update.message.reply_text("❌ Please reply to a message to get user info.")
-        return
-    if reply.from_user:
-        user = reply.from_user
-    elif reply.sender_chat:
-        user = reply.sender_chat
-    else:
-        await update.message.reply_text("❌ Unable to retrieve user info.")
-        return
-    info = (
-        f"👤 <b>User Info</b>\n"
-        f"ID: {user.id}\n"
-        f"First Name: {getattr(user, 'first_name', 'N/A')}\n"
-        f"Last Name: {getattr(user, 'last_name', 'N/A')}\n"
-        f"Username: @{user.username if getattr(user, 'username', None) else 'No username'}\n"
-        f"Is Bot: {'Yes' if getattr(user, 'is_bot', False) else 'No'}\n"
-        f"Type: {getattr(user, 'type', 'Unknown')}\n"
-        f"Language Code: {getattr(user, 'language_code', 'Unknown')}"
-    )
-    await update.message.reply_text(info, parse_mode='HTML')
-
-# Handler: Greet new members
-async def greet_new_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    for new_user in update.message.new_chat_members:
-        welcome_msg = (
-            f"👋 Welcome, {new_user.first_name}!\n"
-            f"ID: {new_user.id}\n"
-            f"Username: @{new_user.username if new_user.username else 'No username'}\n"
-            f"Account Deleted: {'Yes' if new_user.is_deleted else 'No'}"
-        )
-        await update.message.reply_text(welcome_msg)
-
-# Handler: Farewell when user leaves
-async def farewell_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    left_user = update.message.left_chat_member
-    if left_user:
-        farewell_msg = (
-            f"😢 {left_user.first_name} has left the group.\n"
-            f"ID: {left_user.id}\n"
-            f"Username: @{left_user.username if left_user.username else 'No username'}"
-        )
-        await update.message.reply_text(farewell_msg)
-
-# === ADMIN-ONLY COMMANDS ===
-async def mute_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat = update.effective_chat
+    """Send a message when the command /start is issued."""
     user = update.effective_user
-    chat_id = chat.id
-    if not await is_admin_or_owner(chat_id, user.id, context):
-        return await update.message.reply_text("❌ This command requires admin rights.")
-    target_id = await get_target_user(update, context)
-    if not target_id:
-        return
-    try:
-        await context.bot.restrict_chat_member(
+    keyboard = [
+        [
+            InlineKeyboardButton("ℹ️ Info", callback_data="info"),
+            InlineKeyboardButton("➕ Add to Group", callback_data="add_to_group"),
+        ]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.message.reply_html(
+        rf"Hi {user.mention_html()}! 👋",
+        reply_markup=reply_markup,
+    )
+
+async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle button presses."""
+    query = update.callback_query
+    await query.answer()
+    
+    if query.data == "info":
+        await query.edit_message_text(
+            text="🤖 <b>Bot Information</b>\n\n"
+                 "This is a basic Telegram bot created with python-telegram-bot library.\n\n"
+                 "Features:\n"
+                 "- /start command\n"
+                 "- Info button\n"
+                 "- Add to group button\n\n"
+                 "Created by you!",
+            parse_mode="HTML"
+        )
+    elif query.data == "add_to_group":
+        await query.edit_message_text(
+            text="To add this bot to your group:\n\n"
+                 "1. Go to your group\n"
+                 "2. Click on group name\n"
+                 "3. Select 'Add members'\n"
+                 "4. Search for this bot's username\n"
+                 "5. Add it to the group\n\n"
+                 "Note: Make sure to make me admin if you want me to work properly!",
+            parse_mode="HTML"
+        )
+
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Send a message when the command /help is issued."""
+    await update.message.reply_text("Type /start to begin!")
+
+def main():
+    """Start the bot."""
+    # Create the Application
+    application = Application.builder().token(TOKEN).build()
+
+    # Add command handlers
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("help", help_command))
+    
+    # Add callback query handler for buttons
+    application.add_handler(CallbackQueryHandler(button))
+
+    # Run the bot until the user presses Ctrl-C
+    application.run_polling(allowed_updates=Update.ALL_TYPES)
+
+if __name__ == "__main__":
+    main()        await context.bot.restrict_chat_member(
             chat_id, target_id, ChatPermissions(can_send_messages=False)
         )
         await update.message.reply_text(f"🔇 User `{target_id}` has been muted.")
