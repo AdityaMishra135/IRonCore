@@ -276,9 +276,7 @@ async def temp_mute(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_group_admin(update, context):
         return
     
-    if not (target := await get_target_user(update, context)):
-        return
-    
+    # Check if we have both target and time
     if len(context.args) < 2:
         await update.message.reply_text(
             "ℹ️ <b>Usage:</b> <code>/tempmute @username 1h30m</code>\n"
@@ -288,9 +286,24 @@ async def temp_mute(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
     
-    time_input = context.args[1].lower()
-    seconds = 0
+    # Get target user
+    target = await get_target_user(update, context)
+    if not target:
+        return
     
+    # Parse time duration (handle spaces between number and unit)
+    time_input = context.args[1].lower().replace(" ", "")
+    
+    if not any(unit in time_input for unit in ['m', 'h', 'd']):
+        await update.message.reply_text(
+            "⚠️ <b>Invalid time format</b>\n"
+            "Please include time units (m/h/d)\n"
+            "Example: <code>/tempmute @user 1h30m</code>",
+            parse_mode="HTML"
+        )
+        return
+    
+    seconds = 0
     try:
         # Parse days
         if 'd' in time_input:
@@ -298,7 +311,7 @@ async def temp_mute(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if days_part:
                 days = int(days_part)
                 seconds += days * 86400
-            time_input = time_input.split('d')[-1]
+            time_input = time_input.split('d', 1)[-1]
         
         # Parse hours
         if 'h' in time_input:
@@ -306,7 +319,7 @@ async def temp_mute(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if hours_part:
                 hours = int(hours_part)
                 seconds += hours * 3600
-            time_input = time_input.split('h')[-1]
+            time_input = time_input.split('h', 1)[-1]
         
         # Parse minutes
         if 'm' in time_input:
@@ -314,20 +327,23 @@ async def temp_mute(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if minutes_part:
                 minutes = int(minutes_part)
                 seconds += minutes * 60
-    except (ValueError, IndexError):
+    except ValueError:
         await update.message.reply_text(
-            "⚠️ <b>Invalid time format</b>\n"
-            "Please use format like: 30m, 2h, 1d12h, 1h30m",
+            "⚠️ <b>Invalid number in time format</b>\n"
+            "Use format like: <code>1h30m</code>",
             parse_mode="HTML"
         )
         return
     
+    # Validate duration
     if seconds < 60:
         await update.message.reply_text(
-            "⚠️ <b>Minimum mute duration is 1 minute</b>",
+            "⚠️ <b>Minimum mute duration is 1 minute</b>\n"
+            "Please use at least <code>1m</code>",
             parse_mode="HTML"
         )
         return
+    
     if seconds > 30 * 86400:  # 30 days max
         await update.message.reply_text(
             "⚠️ <b>Maximum mute duration is 30 days</b>",
@@ -335,6 +351,7 @@ async def temp_mute(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
     
+    # Apply the mute
     try:
         await context.bot.restrict_chat_member(
             chat_id=update.effective_chat.id,
@@ -348,37 +365,31 @@ async def temp_mute(update: Update, context: ContextTypes.DEFAULT_TYPE):
             until_date=int(time.time()) + seconds
         )
         
-        # Format time string for display
-        time_str = []
+        # Format duration for display
+        duration_parts = []
         remaining = seconds
         if remaining >= 86400:
             days = remaining // 86400
-            time_str.append(f"{days}d")
+            duration_parts.append(f"{days}d")
             remaining %= 86400
         if remaining >= 3600:
             hours = remaining // 3600
-            time_str.append(f"{hours}h")
+            duration_parts.append(f"{hours}h")
             remaining %= 3600
         if remaining >= 60:
             minutes = remaining // 60
-            time_str.append(f"{minutes}m")
+            duration_parts.append(f"{minutes}m")
         
         await update.message.reply_text(
-            f"⏳ <b>Temporarily muted:</b> {target.mention_html()} "
-            f"(ID: <code>{target.id}</code>)\n"
-            f"⏱ <b>Duration:</b> {' '.join(time_str)}\n"
+            f"⏳ <b>Temporarily muted:</b> {target.mention_html()}\n"
+            f"⏱ <b>Duration:</b> {' '.join(duration_parts)}\n"
             f"👮 <b>By admin:</b> {update.effective_user.mention_html()}",
             parse_mode="HTML"
         )
     except Exception as e:
-        logger.error(f"Temp mute failed: {e}")
         await update.message.reply_text(
-            f"⚠️ <b>Temp Mute Failed</b>\n\n"
-            f"Error: {str(e)}\n\n"
-            f"Possible reasons:\n"
-            f"- I need admin permissions\n"
-            f"- Target is admin/owner\n"
-            f"- Invalid time format",
+            f"⚠️ <b>Failed to mute user</b>\n"
+            f"Error: {str(e)}",
             parse_mode="HTML"
         )
 
