@@ -210,8 +210,7 @@ async def mute_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_group_admin(update, context):
         return
     
-    target = await get_target_user(update, context)
-    if not target:
+    if not (target := await get_target_user(update, context)):
         return
     
     try:
@@ -239,6 +238,117 @@ async def mute_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="HTML"
         )
 
+async def unmute_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Remove all restrictions from a user"""
+    if not await is_group_admin(update, context):
+        return
+    
+    if not (target := await get_target_user(update, context)):
+        return
+    
+    try:
+        await context.bot.restrict_chat_member(
+            chat_id=update.effective_chat.id,
+            user_id=target.id,
+            permissions=ChatPermissions(
+                can_send_messages=True,
+                can_send_media_messages=True,
+                can_send_other_messages=True,
+                can_add_web_page_previews=True
+            )
+        )
+        await update.message.reply_text(
+            f"🔊 <b>Unmuted:</b> {target.mention_html()} (ID: <code>{target.id}</code>)",
+            parse_mode="HTML"
+        )
+    except Exception as e:
+        await update.message.reply_text(
+            f"⚠️ <b>Unmute Failed</b>\n\n"
+            f"Error: {str(e)}\n\n"
+            f"Possible reasons:\n"
+            f"- I need admin permissions\n"
+            f"- User not muted",
+            parse_mode="HTML"
+        )
+
+async def temp_mute(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Temporarily mute a user (usage: /tmute @username 1h30m)"""
+    if not await is_group_admin(update, context):
+        return
+    
+    if not (target := await get_target_user(update, context)):
+        return
+    
+    if len(context.args) < 2:
+        await update.message.reply_text(
+            "ℹ️ Usage: /tmute @username 1h30m\n"
+            "Supported time units: m (minutes), h (hours), d (days)"
+        )
+        return
+    
+    time_input = context.args[1].lower()
+    seconds = 0
+    
+    try:
+        if 'd' in time_input:
+            days = int(time_input.split('d')[0])
+            seconds += days * 86400
+            time_input = time_input.split('d')[1]
+        if 'h' in time_input:
+            hours = int(time_input.split('h')[0])
+            seconds += hours * 3600
+            time_input = time_input.split('h')[1]
+        if 'm' in time_input:
+            minutes = int(time_input.split('m')[0])
+            seconds += minutes * 60
+    except (ValueError, IndexError):
+        await update.message.reply_text("⚠️ Invalid time format")
+        return
+    
+    if seconds < 60:
+        await update.message.reply_text("⚠️ Minimum mute duration is 1 minute")
+        return
+    if seconds > 30 * 86400:  # 30 days max
+        await update.message.reply_text("⚠️ Maximum mute duration is 30 days")
+        return
+    
+    try:
+        await context.bot.restrict_chat_member(
+            chat_id=update.effective_chat.id,
+            user_id=target.id,
+            permissions=ChatPermissions(
+                can_send_messages=False,
+                can_send_media_messages=False,
+                can_send_other_messages=False,
+                can_add_web_page_previews=False
+            ),
+            until_date=int(time.time()) + seconds
+        )
+        
+        time_str = ""
+        if seconds >= 86400:
+            time_str += f"{seconds // 86400}d "
+            seconds %= 86400
+        if seconds >= 3600:
+            time_str += f"{seconds // 3600}h "
+            seconds %= 3600
+        if seconds >= 60:
+            time_str += f"{seconds // 60}m"
+        
+        await update.message.reply_text(
+            f"⏳ <b>Temporarily muted:</b> {target.mention_html()} "
+            f"(ID: <code>{target.id}</code>)\n"
+            f"⏱ <b>Duration:</b> {time_str.strip()}",
+            parse_mode="HTML"
+        )
+    except Exception as e:
+        await update.message.reply_text(
+            f"⚠️ <b>Temp Mute Failed</b>\n\n"
+            f"Error: {str(e)}",
+            parse_mode="HTML"
+        )
+
+
 def setup_admin_handlers(app):
     app.add_handler(CommandHandler("ban", ban_user))  # Soft ban
     app.add_handler(CommandHandler("hardban", hard_ban))  # Original ban
@@ -247,3 +357,5 @@ def setup_admin_handlers(app):
     app.add_handler(CommandHandler("warnings", check_warnings))
     app.add_handler(CommandHandler("kick", kick_user))
     app.add_handler(CommandHandler("mute", mute_user))
+    app.add_handler(CommandHandler("unmute", unmute_user))
+    app.add_handler(CommandHandler("tempmute", temp_mute))
