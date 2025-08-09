@@ -2,6 +2,13 @@ import os
 from telegram import Update
 from telegram.ext import ContextTypes, MessageHandler, filters
 
+async def new_chat_members(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle new members including bot itself"""
+    if any(member.id == context.bot.id for member in update.message.new_chat_members):
+        if update.effective_chat.type == "group":
+            await auto_upgrade_group(update, context)
+
+
 async def auto_upgrade_group(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         await update.message.reply_text("🔄 Auto-upgrading group...")
