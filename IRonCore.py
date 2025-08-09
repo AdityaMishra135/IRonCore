@@ -3,38 +3,47 @@ from fastapi import FastAPI
 import uvicorn
 import os
 import asyncio
+import multiprocessing
 
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-PORT = int(os.getenv("PORT", 10000))  # Render provides PORT for web services
 
-# Telegram Bot
+# Telegram Bot Functions
 async def start(update, context):
-    await update.message.reply_text("🌐 Web Service Bot Activated!")
-
-telegram_app = ApplicationBuilder().token(TOKEN).build()
-telegram_app.add_handler(CommandHandler("start", start))
+    """Handle /start command"""
+    await update.message.reply_text("🚀 Bot is fully operational!")
 
 # FastAPI Web Server
 web_app = FastAPI()
 
 @web_app.get("/")
 def health_check():
-    return {"status": "OK", "bot": "running"}
+    """Koyeb health check endpoint"""
+    return {"status": "running", "service": "telegram-bot"}
 
-async def run():
-    # Start both services
-    await telegram_app.initialize()
-    await telegram_app.start()
+async def run_bot():
+    """Run Telegram bot in polling mode"""
+    app = ApplicationBuilder().token(TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
     
-    config = uvicorn.Config(
+    print("🤖 Starting Telegram bot polling...")
+    await app.initialize()
+    await app.start()
+    await app.updater.start_polling()
+    print("✅ Telegram bot is now polling")
+
+def run_web_server():
+    """Run the health check web server"""
+    uvicorn.run(
         web_app,
         host="0.0.0.0",
-        port=PORT,
+        port=8000,  # Koyeb expects port 8000 by default
         log_level="info"
     )
-    server = uvicorn.Server(config)
-    
-    await server.serve()
 
 if __name__ == "__main__":
-    asyncio.run(run())
+    # Start both services in parallel
+    web_process = multiprocessing.Process(target=run_web_server)
+    web_process.start()
+    
+    print("🌐 Starting health check server on port 8000")
+    asyncio.run(run_bot())
