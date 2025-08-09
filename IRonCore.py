@@ -3,47 +3,66 @@ from fastapi import FastAPI
 import uvicorn
 import os
 import asyncio
-import multiprocessing
+import signal
+import sys
 
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 
-# Telegram Bot Functions
+# Telegram Bot
 async def start(update, context):
-    """Handle /start command"""
     await update.message.reply_text("🚀 Bot is fully operational!")
 
-# FastAPI Web Server
+# FastAPI App
 web_app = FastAPI()
 
 @web_app.get("/")
 def health_check():
-    """Koyeb health check endpoint"""
     return {"status": "running", "service": "telegram-bot"}
 
 async def run_bot():
-    """Run Telegram bot in polling mode"""
+    """Run Telegram bot with proper shutdown handling"""
     app = ApplicationBuilder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     
-    print("🤖 Starting Telegram bot polling...")
     await app.initialize()
     await app.start()
-    await app.updater.start_polling()
-    print("✅ Telegram bot is now polling")
+    print("🤖 Bot polling started")
+    
+    try:
+        while True:
+            await asyncio.sleep(1)
+    except asyncio.CancelledError:
+        print("\n🛑 Received shutdown signal")
+        await app.stop()
+        await app.shutdown()
 
 def run_web_server():
-    """Run the health check web server"""
+    """Run the web server with proper config"""
     uvicorn.run(
-        web_app,
+        app="IRonCore:web_app",
         host="0.0.0.0",
-        port=8000,  # Koyeb expects port 8000 by default
-        log_level="info"
+        port=8000,
+        reload=False,
+        workers=1
     )
 
 if __name__ == "__main__":
-    # Start both services in parallel
-    web_process = multiprocessing.Process(target=run_web_server)
+    # Signal handling for clean shutdown
+    def signal_handler(sig, frame):
+        print("\n🚦 Received termination signal")
+        sys.exit(0)
+    
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+
+    # Start web server in a process
+    from multiprocessing import Process
+    web_process = Process(target=run_web_server)
     web_process.start()
     
-    print("🌐 Starting health check server on port 8000")
-    asyncio.run(run_bot())
+    # Run bot in main thread
+    try:
+        asyncio.run(run_bot())
+    finally:
+        web_process.terminate()
+        web_process.join()
