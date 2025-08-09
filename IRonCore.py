@@ -155,7 +155,7 @@ async def mute_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 async def user_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Show detailed information about a user"""
+    """Show detailed information about a user (including owners)"""
     target = await get_target_user(update, context)
     if not target:
         return
@@ -166,8 +166,19 @@ async def user_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
             user_id=target.id
         )
         
-        join_date = member.joined_date.strftime("%Y-%m-%d %H:%M:%S") if member.joined_date else "Unknown"
-        last_online = member.user.last_online_date.strftime("%Y-%m-%d %H:%M:%S") if hasattr(member.user, 'last_online_date') else "Unknown"
+        # Handle owner case (no joined_date)
+        join_date = (
+            member.joined_date.strftime("%Y-%m-%d %H:%M:%S") 
+            if hasattr(member, 'joined_date') and member.joined_date 
+            else "Owner/Creator"
+        )
+        
+        # Get last online if available
+        last_online = (
+            member.user.last_online_date.strftime("%Y-%m-%d %H:%M:%S") 
+            if hasattr(member.user, 'last_online_date') and member.user.last_online_date
+            else "Unknown"
+        )
         
         message = (
             f"👤 <b>User Information</b>\n\n"
@@ -210,7 +221,7 @@ async def is_group_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return False
 
 async def get_target_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Robust user targeting with enhanced error handling"""
+    """Robust user targeting with exact username matching"""
     try:
         # Case 1: Command with reply
         if update.message.reply_to_message:
@@ -221,19 +232,23 @@ async def get_target_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(
                 "🔍 <b>How to target users:</b>\n\n"
                 "1. Reply to user's message with /command\n"
-                "2. /command @username\n"
+                "2. /command @username (case sensitive)\n"
                 "3. /command 123456789 (user ID)\n\n"
-                "<i>Note: Usernames must be in this chat</i>",
+                "<i>Note: Usernames must match exactly</i>",
                 parse_mode="HTML"
             )
             return None
 
         target = context.args[0].strip()
         
-        # Remove @ prefix if present
-        target = target.lstrip('@')
+        # Exact username matching (case sensitive)
+        if target.startswith('@'):
+            target = target[1:]  # Remove @
+            async for member in context.bot.get_chat_members(update.effective_chat.id):
+                if member.user.username and member.user.username == target:
+                    return member.user
         
-        # Try numeric ID first
+        # Numeric ID fallback
         if target.isdigit():
             try:
                 member = await context.bot.get_chat_member(
@@ -241,33 +256,24 @@ async def get_target_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     user_id=int(target)
                 )
                 return member.user
-            except ValueError:
+            except Exception:
                 pass
+        
+        # Final attempt with ID string match
+        async for member in context.bot.get_chat_members(update.effective_chat.id):
+            if str(member.user.id) == target:
+                return member.user
 
-        # Try username resolution
-        try:
-            # Search through chat members
-            async for member in context.bot.get_chat_members(update.effective_chat.id):
-                if member.user.username and member.user.username.lower() == target.lower():
-                    return member.user
-                
-                if str(member.user.id) == target:
-                    return member.user
-
-            raise ValueError(f"User '@{target}' not found in this chat")
-            
-        except Exception as e:
-            await update.message.reply_text(
-                f"❌ <b>User not found</b>\n\n"
-                f"Couldn't find '@{target}' in this group.\n"
-                f"Make sure:\n"
-                f"1. They're a member\n"
-                f"2. You spelled the username correctly\n"
-                f"3. They have a username set",
-                parse_mode="HTML"
-            )
-            logger.warning(f"User resolution failed for {target}: {str(e)}")
-            return None
+        await update.message.reply_text(
+            f"❌ <b>User not found</b>\n\n"
+            f"No exact match for '@{target}'.\n"
+            f"Try using:\n"
+            f"1. Their exact @username\n"
+            f"2. Their numeric ID\n"
+            f"3. Reply to their message",
+            parse_mode="HTML"
+        )
+        return None
 
     except Exception as e:
         logger.error(f"Target error: {str(e)}", exc_info=True)
@@ -275,8 +281,8 @@ async def get_target_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "⚠️ <b>Targeting Error</b>\n\n"
             "Please try:\n"
             "1. Replying to the user's message\n"
-            "2. Using their numeric ID\n"
-            "3. Checking the username spelling",
+            "2. Using their exact @username\n"
+            "3. Using their numeric ID",
             parse_mode="HTML"
         )
         return None
