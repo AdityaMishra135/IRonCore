@@ -1,6 +1,8 @@
 import os
 import asyncio
 import logging
+import time
+from datetime import datetime
 from telegram import (
     Update,
     ChatPermissions,
@@ -17,7 +19,6 @@ from telegram.ext import (
 from fastapi import FastAPI
 import uvicorn
 import multiprocessing
-import time
 
 # Configure logging
 logging.basicConfig(
@@ -28,14 +29,14 @@ logger = logging.getLogger(__name__)
 
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 
-# FastAPI Web Server (for Koyeb health checks)
+# FastAPI Web Server
 web_app = FastAPI()
 
 @web_app.get("/")
 def health_check():
     return {"status": "active", "bot": "running"}
 
-### GROUP MANAGEMENT FUNCTIONS ###
+### CORE GROUP FUNCTIONS ###
 
 async def auto_upgrade_group(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Automatically upgrade group to supergroup"""
@@ -65,13 +66,16 @@ async def ban_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_group_admin(update, context):
         return
     
+    target = await get_target_user(update, context)
+    if not target:
+        return
+    
     try:
-        target = await get_target_user(update, context)
         await context.bot.ban_chat_member(
             chat_id=update.effective_chat.id,
             user_id=target.id
         )
-        await update.message.reply_text(f"🚫 Banned {target.full_name}")
+        await update.message.reply_text(f"🚫 Banned {target.full_name} (ID: {target.id})")
     except Exception as e:
         await update.message.reply_text(f"⚠️ Error: {str(e)}")
 
@@ -80,14 +84,17 @@ async def kick_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_group_admin(update, context):
         return
     
+    target = await get_target_user(update, context)
+    if not target:
+        return
+    
     try:
-        target = await get_target_user(update, context)
         await context.bot.ban_chat_member(
             chat_id=update.effective_chat.id,
             user_id=target.id,
             until_date=int(time.time()) + 60  # 60-second ban = kick
         )
-        await update.message.reply_text(f"👢 Kicked {target.full_name}")
+        await update.message.reply_text(f"👢 Kicked {target.full_name} (ID: {target.id})")
     except Exception as e:
         await update.message.reply_text(f"⚠️ Error: {str(e)}")
 
@@ -96,8 +103,11 @@ async def mute_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_group_admin(update, context):
         return
     
+    target = await get_target_user(update, context)
+    if not target:
+        return
+    
     try:
-        target = await get_target_user(update, context)
         await context.bot.restrict_chat_member(
             chat_id=update.effective_chat.id,
             user_id=target.id,
@@ -108,9 +118,39 @@ async def mute_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 can_add_web_page_previews=False
             )
         )
-        await update.message.reply_text(f"🔇 Muted {target.full_name}")
+        await update.message.reply_text(f"🔇 Muted {target.full_name} (ID: {target.id})")
     except Exception as e:
         await update.message.reply_text(f"⚠️ Error: {str(e)}")
+
+async def user_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show detailed information about a user"""
+    target = await get_target_user(update, context)
+    if not target:
+        return
+    
+    try:
+        member = await context.bot.get_chat_member(
+            chat_id=update.effective_chat.id,
+            user_id=target.id
+        )
+        
+        join_date = member.joined_date.strftime("%Y-%m-%d %H:%M:%S") if member.joined_date else "Unknown"
+        
+        message = (
+            f"👤 <b>User Information</b>\n\n"
+            f"🆔 ID: <code>{target.id}</code>\n"
+            f"📛 Name: {target.full_name}\n"
+            f"📅 Joined: {join_date}\n"
+            f"👑 Status: {member.status}\n"
+            f"🤖 Is Bot: {target.is_bot}\n"
+            f"🔗 Username: @{target.username if target.username else 'N/A'}\n"
+            f"📝 Bio: {target.bio if hasattr(target, 'bio') else 'N/A'}"
+        )
+        
+        await update.message.reply_text(message, parse_mode="HTML")
+        
+    except Exception as e:
+        await update.message.reply_text(f"⚠️ Error getting info: {str(e)}")
 
 ### HELPER FUNCTIONS ###
 
@@ -121,36 +161,49 @@ async def is_group_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     try:
         member = await update.effective_chat.get_member(update.effective_user.id)
-        if member.status not in ("administrator", "creator"):
-            await update.message.reply_text("❌ You need admin rights for this command")
-            return False
-        return True
+        return member.status in ("administrator", "creator")
     except Exception as e:
         logger.error(f"Admin check failed: {e}")
         return False
 
 async def get_target_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Get user to take action on"""
+    """Get target user from command"""
     try:
-        # If replying to a message
+        # If replying to message
         if update.message.reply_to_message:
             return update.message.reply_to_message.from_user
         
-        # If using command with username/user_id
-        if context.args:
-            arg = context.args[0]
-            if arg.startswith("@"):
-                arg = arg[1:]  # Remove @ from username
-            
-            return (await context.bot.get_chat_member(
-                chat_id=update.effective_chat.id,
-                user_id=arg
-            )).user
+        # If using command with argument
+        if not context.args:
+            await update.message.reply_text(
+                "ℹ️ Usage:\n"
+                "1. Reply to user's message with /command\n"
+                "2. /command @username\n"
+                "3. /command 123456 (user ID)"
+            )
+            return None
         
-        await update.message.reply_text("ℹ️ Reply to a message or use: /command @username")
-        return None
+        target = context.args[0]
+        
+        # Remove @ if present
+        if target.startswith('@'):
+            target = target[1:]
+        
+        # Try to resolve user
+        try:
+            member = await context.bot.get_chat_member(
+                chat_id=update.effective_chat.id,
+                user_id=target
+            )
+            return member.user
+        except Exception as e:
+            await update.message.reply_text(f"❌ User not found: {target}")
+            logger.error(f"User resolution failed: {e}")
+            return None
+
     except Exception as e:
-        await update.message.reply_text(f"❌ Couldn't find user: {str(e)}")
+        logger.error(f"Target error: {e}")
+        await update.message.reply_text("⚠️ Error processing target")
         return None
 
 ### BOT SETUP ###
@@ -160,16 +213,17 @@ def run_bot():
     async def bot_main():
         app = ApplicationBuilder().token(TOKEN).build()
         
-        # Group management handlers
+        # Group management
         app.add_handler(MessageHandler(
             filters.StatusUpdate.NEW_CHAT_MEMBERS,
             new_chat_members
         ))
         
-        # Admin command handlers
+        # Admin commands
         app.add_handler(CommandHandler("ban", ban_user))
         app.add_handler(CommandHandler("kick", kick_user))
         app.add_handler(CommandHandler("mute", mute_user))
+        app.add_handler(CommandHandler("info", user_info))
         
         # Error handler
         app.add_error_handler(error_handler)
@@ -195,7 +249,7 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     logger.error(f"Error: {context.error}")
 
 def run_web_server():
-    """Run health check server for Koyeb"""
+    """Run health check server"""
     logger.info("🌐 Starting health check server on port 8000")
     uvicorn.run(
         app="IRonCore:web_app",
