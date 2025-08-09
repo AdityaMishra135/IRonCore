@@ -1,12 +1,7 @@
 import os
 import asyncio
 from dotenv import load_dotenv
-from telegram import (
-    Update,
-    InlineKeyboardButton,
-    InlineKeyboardMarkup,
-    ChatPermissions
-)
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
@@ -68,10 +63,9 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Type /start to begin!")
 
 async def main():
-    """Start the bot with proper async handling."""
-    application = None
+    """Main async function to run the bot."""
     try:
-        # Create and configure application
+        # Build application
         application = ApplicationBuilder().token(TOKEN).build()
         
         # Add handlers
@@ -79,34 +73,34 @@ async def main():
         application.add_handler(CommandHandler("help", help_command))
         application.add_handler(CallbackQueryHandler(button))
         
-        print("Bot starting...")
+        print("🚀 Bot starting...")
         await application.initialize()
         await application.start()
-        print("Bot running...")
+        print("🤖 Bot is now running!")
         
-        # Keep the application running
-        await application.updater.start_polling()
-        await idle()
-        
+        # Run forever until stopped
+        while True:
+            await asyncio.sleep(3600)  # Sleep for 1 hour
+            
+    except asyncio.CancelledError:
+        print("🛑 Received shutdown signal...")
     except Exception as e:
-        print(f"Bot failed: {e}")
+        print(f"❌ Error: {e}")
     finally:
-        if application:
-            print("Shutting down bot...")
+        print("🔄 Shutting down gracefully...")
+        if 'application' in locals():
             await application.stop()
             await application.shutdown()
-        print("Bot stopped.")
+        print("👋 Bot stopped successfully")
 
-def run_bot():
-    """Run the bot with proper event loop handling."""
+if __name__ == "__main__":
+    # Create and run event loop
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
+    
     try:
         loop.run_until_complete(main())
     except KeyboardInterrupt:
         pass
     finally:
         loop.close()
-
-if __name__ == "__main__":
-    run_bot()
