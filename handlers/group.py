@@ -24,35 +24,40 @@ async def is_group_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return False
 
 async def get_target_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Complete user targeting solution"""
+    """Fixed username targeting that actually works"""
     try:
-        # Case 1: Command with reply
+        # 1. Check if replying to a message
         if update.message.reply_to_message:
             return update.message.reply_to_message.from_user
 
-        # Case 2: No arguments
+        # 2. Check if command has arguments
         if not context.args:
             await update.message.reply_text(
-                "🔍 <b>Usage:</b>\n"
-                "1. Reply to user's message with /command\n"
-                "2. /command @username\n"
-                "3. /command 123456789",
+                "ℹ️ Please reply to a user or specify @username/user_id",
                 parse_mode="HTML"
             )
             return None
 
         target = context.args[0].strip()
         
-        # Case 3: Username mention (@username)
+        # 3. Handle @username mentions
         if target.startswith('@'):
-            username = target[1:].lower()
+            username = target[1:]  # Remove @
+            
+            # DEBUG: Log all members first
+            logger.info("Searching for username: %s", username)
+            member_count = 0
             async for member in context.bot.get_chat_members(update.effective_chat.id):
-                if member.user.username and member.user.username.lower() == username:
+                member_count += 1
+                if member.user.username and member.user.username.lower() == username.lower():
+                    logger.info("Found matching user: %s", member.user)
                     return member.user
-            await update.message.reply_text(f"❌ User {target} not found in this chat")
+            
+            logger.warning("Scanned %d members, username not found", member_count)
+            await update.message.reply_text(f"❌ @{username} not found in this chat")
             return None
 
-        # Case 4: Numeric ID
+        # 4. Handle numeric IDs
         if target.isdigit():
             try:
                 member = await context.bot.get_chat_member(
@@ -60,23 +65,18 @@ async def get_target_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     user_id=int(target)
                 )
                 return member.user
-            except Exception:
+            except Exception as e:
+                logger.error(f"ID lookup failed: {e}")
                 await update.message.reply_text(f"❌ User ID {target} not found")
                 return None
 
-        # Case 5: Fallback (try both username and ID)
-        async for member in context.bot.get_chat_members(update.effective_chat.id):
-            if (member.user.username and target.lower() in member.user.username.lower()) or str(member.user.id) == target:
-                return member.user
-
-        await update.message.reply_text(f"❌ No matches found for '{target}'")
+        await update.message.reply_text("⚠️ Invalid target format")
         return None
 
     except Exception as e:
-        logger.error(f"Target error: {e}")
-        await update.message.reply_text("⚠️ Error processing your request")
+        logger.error(f"Targeting crashed: {e}", exc_info=True)
+        await update.message.reply_text("⚠️ Targeting error occurred")
         return None
-
 
 
 def setup_group_handlers(app):
