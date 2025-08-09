@@ -42,20 +42,44 @@ async def get_target_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         # 3. Handle @username mentions
         if target.startswith('@'):
-            username = target[1:]  # Remove @
+            username = target[1:].lower()  # Remove @ and make lowercase
             
-            # DEBUG: Log all members first
-            logger.info("Searching for username: %s", username)
-            member_count = 0
-            async for member in context.bot.get_chat_members(update.effective_chat.id):
-                member_count += 1
-                if member.user.username and member.user.username.lower() == username.lower():
-                    logger.info("Found matching user: %s", member.user)
+            logger.info(f"Searching for username: @{username}")
+            
+            try:
+                # First try with get_chat_member if we have a direct reference
+                try:
+                    member = await context.bot.get_chat_member(
+                        chat_id=update.effective_chat.id,
+                        user_id=target
+                    )
                     return member.user
-            
-            logger.warning("Scanned %d members, username not found", member_count)
-            await update.message.reply_text(f"❌ @{username} not found in this chat")
-            return None
+                except Exception as e:
+                    logger.debug(f"Direct username lookup failed, trying full scan: {e}")
+
+                # Fallback to scanning members
+                found_user = None
+                member_count = 0
+                
+                async for member in context.bot.get_chat_members(update.effective_chat.id):
+                    member_count += 1
+                    user = member.user
+                    if user.username and user.username.lower() == username:
+                        found_user = user
+                        break
+                
+                if found_user:
+                    logger.info(f"Found user after scanning {member_count} members")
+                    return found_user
+                
+                logger.warning(f"Scanned {member_count} members, username not found")
+                await update.message.reply_text(f"❌ @{username} not found in this chat")
+                return None
+
+            except Exception as e:
+                logger.error(f"Username search error: {e}")
+                await update.message.reply_text("⚠️ Error searching for user")
+                return None
 
         # 4. Handle numeric IDs
         if target.isdigit():
