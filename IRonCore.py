@@ -21,12 +21,22 @@ def health_check():
     return {"status": "active", "bot": "running"}
 
 def run_bot():
-    """Run Telegram bot in its own event loop"""
+    """Run Telegram bot with proper event loop management"""
     async def bot_main():
         app = ApplicationBuilder().token(TOKEN).build()
         app.add_handler(CommandHandler("start", start))
         print("🤖 Starting Telegram bot polling...")
-        await app.run_polling()
+        try:
+            await app.initialize()
+            await app.start()
+            await app.updater.start_polling()
+            while True:
+                await asyncio.sleep(3600)  # Keep alive
+        except asyncio.CancelledError:
+            print("\n🛑 Received shutdown signal")
+        finally:
+            await app.stop()
+            await app.shutdown()
     
     # Create new event loop for the bot
     loop = asyncio.new_event_loop()
@@ -37,15 +47,18 @@ def run_bot():
         loop.close()
 
 def run_web():
-    """Run health check server"""
+    """Run health check server with proper shutdown"""
     print("🌐 Starting health check server on port 8000")
-    uvicorn.run(
+    config = uvicorn.Config(
         app="IRonCore:web_app",
         host="0.0.0.0",
         port=8000,
         reload=False,
-        workers=1
+        workers=1,
+        loop="asyncio"
     )
+    server = uvicorn.Server(config)
+    server.run()
 
 if __name__ == "__main__":
     # Start web server in separate process
@@ -56,7 +69,7 @@ if __name__ == "__main__":
     try:
         run_bot()
     except KeyboardInterrupt:
-        print("\n🛑 Shutting down...")
+        print("\n🛑 Shutting down gracefully...")
     finally:
         web_process.terminate()
         web_process.join()
