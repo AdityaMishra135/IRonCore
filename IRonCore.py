@@ -1,7 +1,12 @@
 import os
 import asyncio
 import logging
-from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
+from telegram import (
+    Update,
+    InlineKeyboardMarkup,
+    InlineKeyboardButton,
+    ChatPermissions
+)
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
@@ -29,94 +34,180 @@ web_app = FastAPI()
 def health_check():
     return {"status": "active", "bot": "running"}
 
+### CORE FUNCTIONS ###
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Bot introduction with add-to-group button"""
-    keyboard = [
-        [InlineKeyboardButton("➕ Add to Group", 
-         url=f"https://t.me/{context.bot.username}?startgroup=true")]
-    ]
-    await update.message.reply_text(
-        "🤖 <b>Supergroup Auto-Upgrade Bot</b>\n\n"
-        "I automatically convert any group to supergroup when added!\n"
-        "Just add me to your group and I'll handle the rest.",
-        parse_mode="HTML",
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
+    """Welcome message with admin controls"""
+    if update.effective_chat.type == "private":
+        keyboard = [
+            [InlineKeyboardButton("➕ Add to Group", 
+             url=f"https://t.me/{context.bot.username}?startgroup=true")],
+            [InlineKeyboardButton("🛡️ Admin Commands", callback_data="admin_help")]
+        ]
+        await update.message.reply_text(
+            "🤖 <b>Supergroup Manager Bot</b>\n\n"
+            "Features:\n"
+            "- Auto group upgrade\n"
+            "- User management\n"
+            "- Spam protection\n\n"
+            "Make me admin for full control!",
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
 
 async def new_chat_members(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Detect when bot is added to a group and trigger upgrade"""
+    """Auto-upgrade groups to supergroups"""
     chat = update.effective_chat
     bot_id = context.bot.id
     
-    # Check if bot was added
     if any(member.id == bot_id for member in update.message.new_chat_members):
-        logger.info(f"Bot added to group {chat.id} ({chat.title})")
-        
         if chat.type == "group":
-            try:
-                # Notify group before leaving
-                await update.message.reply_text(
-                    "🔄 <b>Starting Supergroup Upgrade</b>\n\n"
-                    "This group will be upgraded to supergroup automatically.\n"
-                    "Please re-add me to the new supergroup after upgrade.",
-                    parse_mode="HTML"
-                )
-                
-                # Leave to trigger upgrade
-                await context.bot.leave_chat(chat.id)
-                
-                logger.info(f"Triggered upgrade for group {chat.id}")
-                
-            except Exception as e:
-                logger.error(f"Upgrade failed for {chat.id}: {e}")
-                await update.message.reply_text(
-                    "⚠️ Upgrade failed. Please make sure I have admin rights."
-                )
+            await auto_upgrade(update, context)
 
-async def handle_migration(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle successful group migration"""
-    old_id = update.message.migrate_from_chat_id
-    new_id = update.message.migrate_to_chat_id
-    
-    logger.info(f"Group migrated from {old_id} to supergroup {new_id}")
-    
-    # Send welcome message in new supergroup
-    await context.bot.send_message(
-        new_id,
-        "🎉 <b>Upgrade Complete!</b>\n\n"
-        "This is now a supergroup with all features unlocked!\n\n"
-        "Please add @{context.bot.username} back and make me admin "
-        "for full management capabilities.",
-        parse_mode="HTML"
-    )
+async def auto_upgrade(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle automatic group upgrade"""
+    chat = update.effective_chat
+    try:
+        await update.message.reply_text(
+            "🔄 <b>Automatically upgrading to supergroup...</b>\n\n"
+            "Please re-add me after upgrade completes!",
+            parse_mode="HTML"
+        )
+        await context.bot.leave_chat(chat.id)
+        logger.info(f"Triggered auto-upgrade for {chat.id}")
+    except Exception as e:
+        logger.error(f"Upgrade failed: {e}")
+        await update.message.reply_text("⚠️ Upgrade failed. Please make me admin first.")
 
-async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
-    """Log errors"""
-    logger.error(f"Update {update} caused error {context.error}")
+### ADMIN COMMANDS ###
+
+async def ban_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Ban a user from the group"""
+    if not await check_admin(update, context):
+        return
+    
+    target = await get_target(update, context)
+    if not target:
+        return
+    
+    try:
+        await context.bot.ban_chat_member(
+            chat_id=update.effective_chat.id,
+            user_id=target.id
+        )
+        await update.message.reply_text(
+            f"🚫 Banned {target.full_name} (ID: {target.id})"
+        )
+    except Exception as e:
+        await update.message.reply_text(f"⚠️ Ban failed: {e}")
+
+async def kick_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Kick a user from the group"""
+    if not await check_admin(update, context):
+        return
+    
+    target = await get_target(update, context)
+    if not target:
+        return
+    
+    try:
+        await context.bot.ban_chat_member(
+            chat_id=update.effective_chat.id,
+            user_id=target.id,
+            until_date=60  # 1-minute ban = kick
+        )
+        await update.message.reply_text(
+            f"👢 Kicked {target.full_name} (ID: {target.id})"
+        )
+    except Exception as e:
+        await update.message.reply_text(f"⚠️ Kick failed: {e}")
+
+async def mute_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Mute a user (no sending messages)"""
+    if not await check_admin(update, context):
+        return
+    
+    target = await get_target(update, context)
+    if not target:
+        return
+    
+    try:
+        await context.bot.restrict_chat_member(
+            chat_id=update.effective_chat.id,
+            user_id=target.id,
+            permissions=ChatPermissions(
+                can_send_messages=False,
+                can_send_media_messages=False,
+                can_send_other_messages=False,
+                can_add_web_page_previews=False
+            )
+        )
+        await update.message.reply_text(
+            f"🔇 Muted {target.full_name} (ID: {target.id})"
+        )
+    except Exception as e:
+        await update.message.reply_text(f"⚠️ Mute failed: {e}")
+
+### HELPER FUNCTIONS ###
+
+async def check_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Verify user has admin privileges"""
+    user = update.effective_user
+    chat = update.effective_chat
+    
+    try:
+        member = await chat.get_member(user.id)
+        if member.status not in ("administrator", "creator"):
+            await update.message.reply_text("❌ You need admin rights to use this command")
+            return False
+        return True
+    except Exception as e:
+        logger.error(f"Admin check failed: {e}")
+        return False
+
+async def get_target(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Extract target user from command"""
+    try:
+        if update.message.reply_to_message:
+            return update.message.reply_to_message.from_user
+        
+        if context.args:
+            user_id = int(context.args[0])
+            return await context.bot.get_chat_member(
+                chat_id=update.effective_chat.id,
+                user_id=user_id
+            ).user
+        
+        await update.message.reply_text("ℹ️ Usage: /ban @username or reply to user's message")
+        return None
+    except Exception as e:
+        await update.message.reply_text(f"⚠️ Error: {e}")
+        return None
+
+### BOT SETUP ###
 
 def run_bot():
-    """Run Telegram bot with auto-upgrade feature"""
+    """Run Telegram bot with all features"""
     async def bot_main():
         app = ApplicationBuilder().token(TOKEN).build()
         
-        # Add handlers
+        # Core handlers
         app.add_handler(CommandHandler("start", start))
         app.add_handler(MessageHandler(
-            filters.StatusUpdate.NEW_CHAT_MEMBERS, 
+            filters.StatusUpdate.NEW_CHAT_MEMBERS,
             new_chat_members
         ))
-        app.add_handler(MessageHandler(
-            filters.StatusUpdate.MIGRATE,
-            handle_migration
-        ))
-        app.add_error_handler(error_handler)
         
-        logger.info("🤖 Starting bot with auto-upgrade feature...")
+        # Admin commands
+        app.add_handler(CommandHandler("ban", ban_user))
+        app.add_handler(CommandHandler("kick", kick_user))
+        app.add_handler(CommandHandler("mute", mute_user))
+        
+        logger.info("🤖 Starting bot with admin controls...")
         await app.initialize()
         await app.start()
         await app.updater.start_polling()
         
-        # Keep alive
         while True:
             await asyncio.sleep(3600)
     
@@ -141,11 +232,9 @@ def run_web():
     server.run()
 
 if __name__ == "__main__":
-    # Start web server in separate process
     web_process = multiprocessing.Process(target=run_web)
     web_process.start()
     
-    # Run bot in main process
     try:
         run_bot()
     except KeyboardInterrupt:
