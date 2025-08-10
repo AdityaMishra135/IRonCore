@@ -166,30 +166,31 @@ async def get_target_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         target = context.args[0].strip()
         
-        # 3. Handle @username mentions
-        if target.startswith('@'):
-            username = target[1:].lower()  # Remove @ and convert to lowercase
+        # 3. Handle username mentions (with or without @)
+        if target.startswith('@') or (not target.isdigit() and not any(c.isspace() for c in target)):
+            username = target.lstrip('@').lower()  # Remove @ if present and convert to lowercase
             
             try:
-                # First try to get the user directly (works in most cases)
+                # First try to get the user directly
                 try:
-                    # Try to get user by username (without @)
                     member = await context.bot.get_chat_member(
                         chat_id=update.effective_chat.id,
-                        user_id=username  # Note: passing username without @
+                        user_id=username  # Try with username directly
                     )
                     return member.user
                 except Exception as e:
-                    logger.debug(f"Direct username lookup failed, trying member scan: {e}")
-                    pass
+                    logger.debug(f"Direct username lookup failed, trying alternatives: {e}")
 
-                # Fallback to scanning members if direct lookup fails
-                async for member in context.bot.get_chat_members(update.effective_chat.id):
-                    user = member.user
-                    if user.username and user.username.lower() == username:
-                        return user
-                
-                await update.message.reply_text(f"❌ @{username} not found in this chat")
+                # If direct lookup fails, try searching through chat members
+                try:
+                    async for member in context.bot.get_chat_members(update.effective_chat.id):
+                        user = member.user
+                        if user.username and user.username.lower() == username:
+                            return user
+                except Exception as e:
+                    logger.debug(f"Member scan failed: {e}")
+
+                await update.message.reply_text(f"❌ User @{username} not found in this chat")
                 return None
 
             except Exception as e:
@@ -210,7 +211,7 @@ async def get_target_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text(f"❌ User ID {target} not found")
                 return None
 
-        await update.message.reply_text("⚠️ Invalid target format")
+        await update.message.reply_text("⚠️ Invalid target format. Use: /info @username or /info userid")
         return None
 
     except Exception as e:
