@@ -206,12 +206,46 @@ async def kick_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 async def mute_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Restrict a user from sending messages"""
+    """Restrict a user from sending messages (permanent or temporary)"""
     if not await is_group_admin(update, context):
         return
     
     if not (target := await get_target_user(update, context)):
         return
+    
+    # Default to permanent mute if no duration specified
+    until_date = None
+    duration_str = "permanently"
+    
+    # Check if duration is provided
+    if len(context.args) > 1:
+        try:
+            time_str = "".join(context.args[1:]).lower().replace(" ", "")
+            seconds = parse_duration(time_str)
+            
+            if seconds is None:
+                await update.message.reply_text(
+                    "⚠️ Invalid duration format. Examples: 30s, 5m, 2h, 1d12h",
+                    parse_mode="HTML"
+                )
+                return
+            
+            # Validate maximum duration (30 days)
+            if seconds > 30 * 86400:
+                await update.message.reply_text(
+                    "⚠️ Maximum mute duration is 30 days",
+                    parse_mode="HTML"
+                )
+                return
+                
+            until_date = int(time.time()) + seconds
+            duration_str = format_duration(seconds)
+        except Exception as e:
+            await update.message.reply_text(
+                f"⚠️ Error parsing duration: {str(e)}",
+                parse_mode="HTML"
+            )
+            return
     
     try:
         await context.bot.restrict_chat_member(
@@ -222,10 +256,14 @@ async def mute_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 can_send_media_messages=False,
                 can_send_other_messages=False,
                 can_add_web_page_previews=False
-            )
+            ),
+            until_date=until_date
         )
+        
         await update.message.reply_text(
-            f"🔇 <b>Muted:</b> {target.mention_html()} (ID: <code>{target.id}</code>)",
+            f"🔇 <b>Muted:</b> {target.mention_html()} (ID: <code>{target.id}</code>)\n"
+            f"⏱ <b>Duration:</b> {duration_str}\n"
+            f"👮 <b>By admin:</b> {update.effective_user.mention_html()}",
             parse_mode="HTML"
         )
     except Exception as e:
@@ -237,6 +275,69 @@ async def mute_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"- Target is admin/owner",
             parse_mode="HTML"
         )
+
+def parse_duration(time_str: str) -> int:
+    """Parse time duration string into seconds"""
+    if not time_str:
+        return None
+        
+    total_seconds = 0
+    current_num = ""
+    
+    for char in time_str:
+        if char.isdigit():
+            current_num += char
+        else:
+            if not current_num:
+                return None
+                
+            try:
+                num = int(current_num)
+            except ValueError:
+                return None
+                
+            if char == 's':
+                total_seconds += num
+            elif char == 'm':
+                total_seconds += num * 60
+            elif char == 'h':
+                total_seconds += num * 3600
+            elif char == 'd':
+                total_seconds += num * 86400
+            else:
+                return None
+                
+            current_num = ""
+    
+    # Handle case where string ends with number but no unit
+    if current_num:
+        return None
+        
+    return total_seconds if total_seconds > 0 else None
+
+def format_duration(seconds: int) -> str:
+    """Format seconds into human-readable duration"""
+    if seconds is None:
+        return "permanently"
+        
+    days = seconds // 86400
+    hours = (seconds % 86400) // 3600
+    minutes = (seconds % 3600) // 60
+    seconds = seconds % 60
+    
+    parts = []
+    if days > 0:
+        parts.append(f"{days}d")
+    if hours > 0:
+        parts.append(f"{hours}h")
+    if minutes > 0:
+        parts.append(f"{minutes}m")
+    if seconds > 0 or not parts:
+        parts.append(f"{seconds}s")
+    
+    return " ".join(parts)
+
+
 
 async def unmute_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Remove all restrictions from a user"""
@@ -271,69 +372,7 @@ async def unmute_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="HTML"
         )
 
-async def temp_mute(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Temporarily mute a user (usage: /tempmute @username 1h30m)"""
-    if not await is_group_admin(update, context):
-        return
-    
-    # Check if we have the right number of arguments
-    if len(context.args) < 2:
-        await show_usage(update)
-        return
-    
-    # Get target user
-    target = await get_target_user(update, context)
-    if not target:
-        return
-    
-    # Combine all arguments after username as time string
-    time_str = "".join(context.args[1:]).lower().replace(" ", "")
-    
-    # Parse time duration
-    try:
-        seconds = parse_duration(time_str)
-        if seconds is None:
-            await show_usage(update)
-            return
-    except ValueError:
-        await show_usage(update)
-        return
-    
-    # Validate maximum duration only (no minimum check)
-    if seconds > 30 * 86400:  # 30 days max
-        await update.message.reply_text(
-            "⚠️ <b>Maximum mute duration is 30 days</b>",
-            parse_mode="HTML"
-        )
-        return
-    
-    # Apply the mute
-    try:
-        await context.bot.restrict_chat_member(
-            chat_id=update.effective_chat.id,
-            user_id=target.id,
-            permissions=ChatPermissions(
-                can_send_messages=False,
-                can_send_media_messages=False,
-                can_send_other_messages=False,
-                can_add_web_page_previews=False
-            ),
-            until_date=int(time.time()) + seconds
-        )
-        
-        duration_str = format_duration(seconds)
-        await update.message.reply_text(
-            f"⏳ <b>Temporarily muted:</b> {target.mention_html()}\n"
-            f"⏱ <b>Duration:</b> {duration_str}\n"
-            f"👮 <b>By admin:</b> {update.effective_user.mention_html()}",
-            parse_mode="HTML"
-        )
-    except Exception as e:
-        await update.message.reply_text(
-            f"⚠️ <b>Failed to mute user</b>\n"
-            f"Error: {str(e)}",
-            parse_mode="HTML"
-        )
+
 
 async def show_usage(update: Update):
     """Show usage instructions"""
@@ -357,4 +396,4 @@ def setup_admin_handlers(app):
     app.add_handler(CommandHandler("kick", kick_user))
     app.add_handler(CommandHandler("mute", mute_user))
     app.add_handler(CommandHandler("unmute", unmute_user))
-    app.add_handler(CommandHandler("tempmute", temp_mute))
+
