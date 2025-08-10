@@ -20,47 +20,29 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 async def main():
-    """Main application entry point"""
-    # Initialize database first
+     # Initialize database first
     from database.database import init_db
     init_db()
 
-    # Build application without automatic job queue
-    app = (
-        ApplicationBuilder()
-        .token(os.getenv("BOT_TOKEN"))
-        .concurrent_updates(True)
-        .job_queue(None)  # Disable automatic job queue creation
-        .build()
-    )
+    """Main application entry point"""
+    app = ApplicationBuilder().token(os.getenv("BOT_TOKEN")).build()
     
     # Setup handlers
     setup_group_handlers(app)
-    setup_info_handler(app)
     setup_admin_handlers(app)
+    setup_info_handler(app)
     
     logger.info("Starting bot in %s environment", os.getenv("ENVIRONMENT"))
+    await app.initialize()
+    await app.start()
+    await app.updater.start_polling()
     
-    try:
-        await app.initialize()
-        await app.start()
-        await app.updater.start_polling()
-        
-        # Keep the bot running
-        while True:
-            await asyncio.sleep(3600)
-    except (KeyboardInterrupt, SystemExit):
-        logger.info("Shutting down gracefully...")
-    finally:
-        if 'updater' in app.__dict__ and app.updater.running:
-            await app.updater.stop()
-        if app.running:
-            await app.stop()
-        if app.post_init:
-            await app.shutdown()
+    # Keep alive
+    while True:
+        await asyncio.sleep(3600)
 
 if __name__ == "__main__":
-    # Start web server in separate process
+    # Start web server
     web_process = multiprocessing.Process(
         target=run_web_server,
         daemon=True
@@ -70,6 +52,8 @@ if __name__ == "__main__":
     # Run bot
     try:
         asyncio.run(main())
+    except KeyboardInterrupt:
+        logger.info("Shutting down gracefully...")
     finally:
         web_process.terminate()
         web_process.join()
