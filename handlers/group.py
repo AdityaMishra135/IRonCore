@@ -168,20 +168,22 @@ async def get_target_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         # 3. Handle @username mentions
         if target.startswith('@'):
-            username = target[1:].lower()
+            username = target[1:].lower()  # Remove @ and convert to lowercase
             
             try:
-                # Try with get_chat_member first
+                # First try to get the user directly (works in most cases)
                 try:
+                    # Try to get user by username (without @)
                     member = await context.bot.get_chat_member(
                         chat_id=update.effective_chat.id,
-                        user_id=target
+                        user_id=username  # Note: passing username without @
                     )
                     return member.user
-                except Exception:
+                except Exception as e:
+                    logger.debug(f"Direct username lookup failed, trying member scan: {e}")
                     pass
 
-                # Fallback to scanning members
+                # Fallback to scanning members if direct lookup fails
                 async for member in context.bot.get_chat_members(update.effective_chat.id):
                     user = member.user
                     if user.username and user.username.lower() == username:
