@@ -3,7 +3,14 @@ import logging
 from telegram import Update
 from datetime import datetime
 from telegram.ext import ContextTypes, MessageHandler, filters, CommandHandler
-from database.database import store_join_date, get_join_date  # Added this import
+from database.database import (
+    store_join_date, 
+    get_join_date,
+    set_welcome_message,
+    get_welcome_message,
+    set_goodbye_message,
+    get_goodbye_message
+)
 
 
 # Set up logging
@@ -25,9 +32,9 @@ async def new_chat_members(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await auto_upgrade_group(update, context)
         return
     
-    # Store join dates using database
+    # Store join dates in database
     for member in update.message.new_chat_members:
-        store_join_date(update.effective_chat.id, member.id)  # Changed to use database
+        store_join_date(update.effective_chat.id, member.id)
     
     await send_welcome_message(update, context)
 
@@ -41,7 +48,7 @@ async def send_welcome_message(update: Update, context: ContextTypes.DEFAULT_TYP
     """Send welcome message for new members"""
     try:
         chat_id = update.effective_chat.id
-        welcome_msg = context.chat_data.get('welcome_msg', DEFAULT_WELCOME_MSG)
+        welcome_msg = get_welcome_message(chat_id) or DEFAULT_WELCOME_MSG
         
         for new_member in update.message.new_chat_members:
             mention = new_member.mention_html()
@@ -67,7 +74,7 @@ async def send_goodbye_message(update: Update, context: ContextTypes.DEFAULT_TYP
     """Send goodbye message for leaving members"""
     try:
         chat_id = update.effective_chat.id
-        goodbye_msg = context.chat_data.get('goodbye_msg', DEFAULT_GOODBYE_MSG)
+        goodbye_msg = get_goodbye_message(chat_id) or DEFAULT_GOODBYE_MSG
         
         left_member = update.message.left_chat_member
         mention = left_member.mention_html()
@@ -94,8 +101,8 @@ async def set_welcome(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     welcome_msg = ' '.join(context.args)
-    context.chat_data['welcome_msg'] = welcome_msg
-    await update.message.reply_text("✅ Welcome message updated!")
+    set_welcome_message(update.effective_chat.id, welcome_msg)
+    await update.message.reply_text("✅ Welcome message updated and saved!")
 
 async def set_goodbye(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Command to set custom goodbye message"""
@@ -108,17 +115,17 @@ async def set_goodbye(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     goodbye_msg = ' '.join(context.args)
-    context.chat_data['goodbye_msg'] = goodbye_msg
-    await update.message.reply_text("✅ Goodbye message updated!")
+    set_goodbye_message(update.effective_chat.id, goodbye_msg)
+    await update.message.reply_text("✅ Goodbye message updated and saved!")
 
 async def show_welcome(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Command to show current welcome message"""
-    welcome_msg = context.chat_data.get('welcome_msg', DEFAULT_WELCOME_MSG)
+    welcome_msg = get_welcome_message(update.effective_chat.id) or DEFAULT_WELCOME_MSG
     await update.message.reply_text(f"Current welcome message:\n\n{welcome_msg}")
 
 async def show_goodbye(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Command to show current goodbye message"""
-    goodbye_msg = context.chat_data.get('goodbye_msg', DEFAULT_GOODBYE_MSG)
+    goodbye_msg = get_goodbye_message(update.effective_chat.id) or DEFAULT_GOODBYE_MSG
     await update.message.reply_text(f"Current goodbye message:\n\n{goodbye_msg}")
 
 async def auto_upgrade_group(update: Update, context: ContextTypes.DEFAULT_TYPE):
