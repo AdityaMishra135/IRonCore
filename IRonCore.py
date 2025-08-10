@@ -20,11 +20,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-async def post_init(application: Application):
-    """Run after the bot is initialized"""
-    await restore_mutes(application)
-
-
 
 async def main():
      # Initialize database first
@@ -39,9 +34,10 @@ async def main():
     setup_admin_handlers(app)
     setup_info_handler(app)
     
-    app.run_polling(post_init=post_init)
+
     logger.info("Starting bot in %s environment", os.getenv("ENVIRONMENT"))
     await app.initialize()
+    await app.run_polling()
     await app.start()
     await app.updater.start_polling()
     
