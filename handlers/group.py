@@ -3,6 +3,8 @@ import logging
 from telegram import Update
 from datetime import datetime
 from telegram.ext import ContextTypes, MessageHandler, filters, CommandHandler
+from database.database import store_join_date, get_join_date  # Added this import
+
 
 # Set up logging
 logging.basicConfig(
@@ -23,19 +25,16 @@ async def new_chat_members(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await auto_upgrade_group(update, context)
         return
     
-    # Store join dates
-    chat_id = update.effective_chat.id
-    if chat_id not in user_join_dates:
-        user_join_dates[chat_id] = {}
-    
+    # Store join dates using database
     for member in update.message.new_chat_members:
-        user_join_dates[chat_id][member.id] = datetime.now()
+        store_join_date(update.effective_chat.id, member.id)  # Changed to use database
     
     await send_welcome_message(update, context)
 
 def get_user_join_date(chat_id: int, user_id: int) -> datetime:
-    """Get stored join date for a user"""
-    return user_join_dates.get(chat_id, {}).get(user_id)
+    """Get stored join date for a user from database"""
+    return get_join_date(chat_id, user_id)  # Changed to use database
+
 
 
 async def send_welcome_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -62,6 +61,7 @@ async def left_chat_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle member leaving the chat"""
     if update.message.left_chat_member.id != context.bot.id:
         await send_goodbye_message(update, context)
+
 
 async def send_goodbye_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Send goodbye message for leaving members"""
