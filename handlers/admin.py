@@ -206,7 +206,7 @@ async def kick_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 async def mute_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Restrict a user from sending messages (permanent or temporary)"""
+    """Restrict a user from sending messages with automatic unmute"""
     if not await is_group_admin(update, context):
         return
     
@@ -220,33 +220,30 @@ async def mute_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Check if duration is provided
     if len(context.args) > 1:
         try:
-            # Get the time string (handle cases like "/mute @user 1h" or "/mute 1h @user")
             time_str = context.args[-1]  # Take the last argument as duration
+            seconds = parse_duration(time_str.lower())
             
-            # Check if it's a valid duration string
-            if any(c in time_str.lower() for c in ['s', 'm', 'h', 'd']):
-                seconds = parse_duration(time_str.lower())
+            if seconds is None or seconds <= 0:
+                await update.message.reply_text(
+                    "⚠️ Invalid duration format. Examples: 30s, 5m, 2h, 1d12h",
+                    parse_mode="HTML"
+                )
+                return
+            
+            # Validate maximum duration (30 days)
+            if seconds > 30 * 86400:
+                await update.message.reply_text(
+                    "⚠️ Maximum mute duration is 30 days",
+                    parse_mode="HTML"
+                )
+                return
                 
-                if seconds is None or seconds <= 0:
-                    await update.message.reply_text(
-                        "⚠️ Invalid duration format. Examples: 30s, 5m, 2h, 1d12h",
-                        parse_mode="HTML"
-                    )
-                    return
-                
-                # Validate maximum duration (30 days)
-                if seconds > 30 * 86400:
-                    await update.message.reply_text(
-                        "⚠️ Maximum mute duration is 30 days",
-                        parse_mode="HTML"
-                    )
-                    return
-                    
-                until_date = int(time.time()) + seconds
-                duration_str = format_duration(seconds)
-            else:
-                # If no duration unit found, treat as permanent mute
-                pass
+            until_date = int(time.time()) + seconds
+            duration_str = format_duration(seconds)
+            
+            # Store mute record in database
+            add_mute_record(update.effective_chat.id, target.id, until_date)
+            
         except Exception as e:
             await update.message.reply_text(
                 f"⚠️ Error parsing duration: {str(e)}",
@@ -273,6 +270,19 @@ async def mute_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"👮 <b>By admin:</b> {update.effective_user.mention_html()}",
             parse_mode="HTML"
         )
+        
+        # Schedule automatic unmute if temporary
+        if until_date:
+            context.job_queue.run_once(
+                callback=unmute_job,
+                when=seconds,
+                data={
+                    'chat_id': update.effective_chat.id,
+                    'user_id': target.id
+                },
+                name=f"unmute_{update.effective_chat.id}_{target.id}"
+            )
+            
     except Exception as e:
         await update.message.reply_text(
             f"⚠️ <b>Mute Failed</b>\n\n"
@@ -282,7 +292,65 @@ async def mute_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"- Target is admin/owner",
             parse_mode="HTML"
         )
+
+async def unmute_job(context: ContextTypes.DEFAULT_TYPE):
+    """Job to automatically unmute users"""
+    job = context.job
+    chat_id = job.data['chat_id']
+    user_id = job.data['user_id']
+    
+    try:
+        # Remove from database first
+        remove_mute_record(chat_id, user_id)
         
+        # Actually unmute the user
+        await context.bot.restrict_chat_member(
+            chat_id=chat_id,
+            user_id=user_id,
+            permissions=ChatPermissions(
+                can_send_messages=True,
+                can_send_media_messages=True,
+                can_send_other_messages=True,
+                can_add_web_page_previews=True
+            )
+        )
+        
+        # Notify chat if possible
+        try:
+            user = await context.bot.get_chat_member(chat_id, user_id)
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=f"🔊 <b>Automatically unmuted:</b> {user.user.mention_html()}",
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass
+            
+    except Exception as e:
+        logger.error(f"Failed to automatically unmute {user_id} in {chat_id}: {e}")
+
+async def restore_mutes(application: Application):
+    """Restore active mutes when bot starts"""
+    active_mutes = get_active_mutes()
+    current_time = time.time()
+    
+    for chat_id, user_id, until_date in active_mutes:
+        remaining = until_date - current_time
+        if remaining > 0:
+            application.job_queue.run_once(
+                callback=unmute_job,
+                when=remaining,
+                data={
+                    'chat_id': chat_id,
+                    'user_id': user_id
+                },
+                name=f"unmute_{chat_id}_{user_id}"
+            )
+            logger.info(f"Scheduled unmute for {user_id} in {chat_id} in {remaining} seconds")
+        else:
+            # Mute already expired, remove from database
+            remove_mute_record(chat_id, user_id)
+
 def parse_duration(time_str: str) -> int:
     """Parse time duration string into seconds"""
     if not time_str:
