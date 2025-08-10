@@ -223,4 +223,4 @@ def setup_group_handlers(application):
     application.add_handler(CommandHandler("setwelcome", set_welcome))
     application.add_handler(CommandHandler("setgoodbye", set_goodbye))
     application.add_handler(CommandHandler("welcome", show_welcome))
-    application.add_handler(CommandHandler("goodbye", show_goodbye)) add here feature when give /ginfo then show group info like build date ,total members,total admin,total bot, banned user list, muted user list
+    application.add_handler(CommandHandler("goodbye", show_goodbye))
