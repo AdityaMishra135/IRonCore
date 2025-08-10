@@ -100,41 +100,5 @@ def get_goodbye_message(chat_id: int) -> str:
         result = cursor.fetchone()
         return result[0] if result else None
 
-# Add to your database.py
-def add_mute_record(chat_id: int, user_id: int, until_date: int):
-    with sqlite3.connect(DB_PATH) as conn:
-        cursor = conn.cursor()
-        cursor.execute("""
-        CREATE TABLE IF NOT EXISTS mute_records (
-            chat_id INTEGER,
-            user_id INTEGER,
-            until_date INTEGER,
-            PRIMARY KEY (chat_id, user_id)
-        )
-        """)
-        cursor.execute("""
-        INSERT OR REPLACE INTO mute_records (chat_id, user_id, until_date)
-        VALUES (?, ?, ?)
-        """, (chat_id, user_id, until_date))
-        conn.commit()
-
-def get_active_mutes():
-    with sqlite3.connect(DB_PATH) as conn:
-        cursor = conn.cursor()
-        cursor.execute("""
-        SELECT chat_id, user_id, until_date FROM mute_records
-        WHERE until_date > ?
-        """, (int(time.time()),))
-        return cursor.fetchall()
-
-def remove_mute_record(chat_id: int, user_id: int):
-    with sqlite3.connect(DB_PATH) as conn:
-        cursor = conn.cursor()
-        cursor.execute("""
-        DELETE FROM mute_records
-        WHERE chat_id = ? AND user_id = ?
-        """, (chat_id, user_id))
-        conn.commit()
-
 # Initialize database when module loads
 init_db()
