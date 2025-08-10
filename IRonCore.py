@@ -20,6 +20,10 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 async def main():
+     # Initialize database first
+    from database.database import init_db
+    init_db()
+
     """Main application entry point"""
     app = ApplicationBuilder().token(os.getenv("BOT_TOKEN")).build()
     
