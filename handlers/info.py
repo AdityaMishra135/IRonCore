@@ -1,7 +1,8 @@
 import os
 from telegram import Update
 from telegram.ext import ContextTypes, CommandHandler
-from handlers.group import get_target_user
+from handlers.group import get_target_user, get_user_join_date
+from datetime import datetime
 
 async def user_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Show detailed information about a user (including owners)"""
@@ -15,11 +16,12 @@ async def user_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
             user_id=target.id
         )
         
-        # Handle owner case (no joined_date)
+        # Get join date from our storage first, then fallback to Telegram's data
+        stored_join_date = get_user_join_date(update.effective_chat.id, target.id)
         join_date = (
-            member.joined_date.strftime("%Y-%m-%d %H:%M:%S") 
-            if hasattr(member, 'joined_date') and member.joined_date 
-            else "Owner/Creator"
+            stored_join_date.strftime("%Y-%m-%d %H:%M:%S") if stored_join_date else
+            member.joined_date.strftime("%Y-%m-%d %H:%M:%S") if hasattr(member, 'joined_date') and member.joined_date else
+            "Owner/Creator"
         )
         
         # Get last online if available
@@ -49,7 +51,6 @@ async def user_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"Error: {str(e)}",
             parse_mode="HTML"
         )
-
 
 def setup_info_handler(app):
     app.add_handler(CommandHandler("info", user_info))
