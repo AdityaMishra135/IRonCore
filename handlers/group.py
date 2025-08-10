@@ -1,6 +1,7 @@
 import os
 import logging
 from telegram import Update
+from datetime import datetime
 from telegram.ext import ContextTypes, MessageHandler, filters, CommandHandler
 
 # Set up logging
@@ -13,16 +14,29 @@ logger = logging.getLogger(__name__)
 # Constants
 DEFAULT_WELCOME_MSG = "👋 Welcome {mention} to {chat_title}!"
 DEFAULT_GOODBYE_MSG = "👋 {mention} has left {chat_title}!"
+user_join_dates = {}  # Format: {chat_id: {user_id: join_timestamp}}
 
 async def new_chat_members(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle new members including bot itself"""
     if any(member.id == context.bot.id for member in update.message.new_chat_members):
         if update.effective_chat.type == "group":
             await auto_upgrade_group(update, context)
-        return  # Don't proceed further if bot was added
+        return
     
-    # Handle user join greetings
+    # Store join dates
+    chat_id = update.effective_chat.id
+    if chat_id not in user_join_dates:
+        user_join_dates[chat_id] = {}
+    
+    for member in update.message.new_chat_members:
+        user_join_dates[chat_id][member.id] = datetime.now()
+    
     await send_welcome_message(update, context)
+
+def get_user_join_date(chat_id: int, user_id: int) -> datetime:
+    """Get stored join date for a user"""
+    return user_join_dates.get(chat_id, {}).get(user_id)
+
 
 async def send_welcome_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Send welcome message for new members"""
