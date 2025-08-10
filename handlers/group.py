@@ -1,238 +1,219 @@
-import random
-from telegram import (
-    Update,
-    ChatPermissions,
-    InlineKeyboardButton,
-    InlineKeyboardMarkup
-)
-from telegram.ext import (
-    ContextTypes,
-    MessageHandler,
-    filters,
-    CommandHandler,
-    CallbackQueryHandler
-)
-from datetime import datetime, timedelta
+import os
+from telegram import Update
+from telegram.ext import ContextTypes, MessageHandler, filters
 
-# CAPTCHA configuration
-CAPTCHA_TIMEOUT = 300  # 5 minutes in seconds
-PENDING_VERIFICATION = {}  # Stores pending users: {chat_id: {user_id: {"answer": X, "msg_id": Y}}}
+# Add these constants at the top of your file
+DEFAULT_WELCOME_MSG = "👋 Welcome {mention} to {chat_title}!"
+DEFAULT_GOODBYE_MSG = "👋 {mention} has left {chat_title}!"
 
 async def new_chat_members(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle new members with CAPTCHA verification"""
-    # Check if bot was added
+    """Handle new members including bot itself"""
     if any(member.id == context.bot.id for member in update.message.new_chat_members):
         if update.effective_chat.type == "group":
             await auto_upgrade_group(update, context)
-        return
-    
-    # Skip if not a group/supergroup
-    if update.effective_chat.type not in ["group", "supergroup"]:
-        return
-    
-    # Restrict and verify each new member
-    for member in update.message.new_chat_members:
-        if member.is_bot:  # Skip other bots
-            continue
-            
-        await start_captcha_verification(update, context, member)
+    else:
+        # Handle user join greetings
+        await send_welcome_message(update, context)
 
-async def start_captcha_verification(update: Update, context: ContextTypes.DEFAULT_TYPE, user):
-    """Initiate CAPTCHA verification for a user"""
-    chat = update.effective_chat
-    user_id = user.id
-    
-    # Generate simple math CAPTCHA (e.g., "2 + 3")
-    num1 = random.randint(1, 10)
-    num2 = random.randint(1, 10)
-    answer = num1 + num2
-    captcha_text = f"{num1} + {num2} = ?"
-    
-    # Restrict user permissions
-    await context.bot.restrict_chat_member(
-        chat_id=chat.id,
-        user_id=user_id,
-        permissions=ChatPermissions(
-            can_send_messages=False,
-            can_send_media_messages=False,
-            can_send_polls=False,
-            can_send_other_messages=False,
-            can_add_web_page_previews=False,
-            can_change_info=False,
-            can_invite_users=False,
-            can_pin_messages=False
-        )
-    )
-    
-    # Store CAPTCHA answer
-    if chat.id not in PENDING_VERIFICATION:
-        PENDING_VERIFICATION[chat.id] = {}
-    
-    # Send CAPTCHA message with button
-    keyboard = [[InlineKeyboardButton("Click to solve CAPTCHA", callback_data=f"captcha_{user_id}")]]
-    msg = await context.bot.send_message(
-        chat_id=chat.id,
-        text=f"👋 Welcome {user.mention_html()}! Please verify you're human:\n\n"
-             f"🔢 Solve this: {captcha_text}\n"
-             f"⚠️ You have {CAPTCHA_TIMEOUT//60} minutes to complete this.",
-        reply_markup=InlineKeyboardMarkup(keyboard),
-        parse_mode="HTML"
-    )
-    
-    # Store verification data
-    PENDING_VERIFICATION[chat.id][user_id] = {
-        "answer": answer,
-        "msg_id": msg.message_id,
-        "join_time": datetime.now()
-    }
-    
-    # Schedule auto-kick if not solved
-    context.job_queue.run_once(
-        callback=auto_kick_user,
-        when=CAPTCHA_TIMEOUT,
-        data=(chat.id, user_id),
-        name=f"captcha_kick_{chat.id}_{user_id}"
-    )
 
-async def handle_captcha_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle CAPTCHA button press"""
-    query = update.callback_query
-    user_id = int(query.data.split("_")[1])
-    chat_id = update.effective_chat.id
-    
-    # Verify this is the correct user clicking
-    if query.from_user.id != user_id:
-        await query.answer("This CAPTCHA isn't for you!", show_alert=True)
-        return
-    
-    # Check if user is still pending verification
-    if chat_id not in PENDING_VERIFICATION or user_id not in PENDING_VERIFICATION[chat_id]:
-        await query.answer("Verification expired!", show_alert=True)
-        return
-    
-    # Ask for the answer via private message
-    await query.answer()
-    await context.bot.send_message(
-        chat_id=user_id,
-        text=f"Please send me the answer to the CAPTCHA you saw in the group."
-    )
-
-async def verify_captcha_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Check user's answer to CAPTCHA"""
-    user_id = update.effective_user.id
-    chat_id = None
-    
-    # Find which chat this user is verifying for
-    for cid, users in PENDING_VERIFICATION.items():
-        if user_id in users:
-            chat_id = cid
-            break
-    
-    if not chat_id:
-        return  # Not in verification process
-    
-    captcha_data = PENDING_VERIFICATION[chat_id][user_id]
-    
+async def send_welcome_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Send welcome message for new members"""
     try:
-        # Check if answer is correct
-        if int(update.message.text.strip()) == captcha_data["answer"]:
-            # Grant full permissions
-            await context.bot.restrict_chat_member(
-                chat_id=chat_id,
-                user_id=user_id,
-                permissions=ChatPermissions(
-                    can_send_messages=True,
-                    can_send_media_messages=True,
-                    can_send_polls=True,
-                    can_send_other_messages=True,
-                    can_add_web_page_previews=True
-                )
+        chat_id = update.effective_chat.id
+        welcome_msg = context.chat_data.get('welcome_msg', DEFAULT_WELCOME_MSG)
+        
+        for new_member in update.message.new_chat_members:
+            mention = new_member.mention_html()
+            text = welcome_msg.format(
+                mention=mention,
+                chat_title=update.effective_chat.title,
+                username=new_member.username or "user",
+                first_name=new_member.first_name or "",
+                last_name=new_member.last_name or "",
+                full_name=f"{new_member.first_name or ''} {new_member.last_name or ''}".strip()
             )
-            
-            # Delete CAPTCHA message
-            try:
-                await context.bot.delete_message(
-                    chat_id=chat_id,
-                    message_id=captcha_data["msg_id"]
-                )
-            except:
-                pass
-            
-            # Remove from pending
-            del PENDING_VERIFICATION[chat_id][user_id]
-            
-            # Send welcome message
-            await context.bot.send_message(
-                chat_id=chat_id,
-                text=f"✅ {update.effective_user.mention_html()} has passed verification! Welcome!",
+            await update.message.reply_text(text, parse_mode='HTML')
+    except Exception as e:
+        print(f"Error sending welcome message: {e}")
+
+
+async def left_chat_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle member leaving the chat"""
+    if update.message.left_chat_member.id != context.bot.id:
+        await send_goodbye_message(update, context)
+
+
+async def send_goodbye_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Send goodbye message for leaving members"""
+    try:
+        chat_id = update.effective_chat.id
+        goodbye_msg = context.chat_data.get('goodbye_msg', DEFAULT_GOODBYE_MSG)
+        
+        left_member = update.message.left_chat_member
+        mention = left_member.mention_html()
+        text = goodbye_msg.format(
+            mention=mention,
+            chat_title=update.effective_chat.title,
+            username=left_member.username or "user",
+            first_name=left_member.first_name or "",
+            last_name=left_member.last_name or "",
+            full_name=f"{left_member.first_name or ''} {left_member.last_name or ''}".strip()
+        )
+        await update.message.reply_text(text, parse_mode='HTML')
+    except Exception as e:
+        print(f"Error sending goodbye message: {e}")
+
+
+async def set_welcome(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Command to set custom welcome message"""
+    if not await is_group_admin(update, context):
+        await update.message.reply_text("❌ You need to be admin to use this command")
+        return
+    
+    if not context.args:
+        await update.message.reply_text("ℹ️ Usage: /setwelcome Your welcome message (use {mention}, {chat_title}, etc.)")
+        return
+    
+    welcome_msg = ' '.join(context.args)
+    context.chat_data['welcome_msg'] = welcome_msg
+    await update.message.reply_text("✅ Welcome message updated!")
+
+
+async def set_goodbye(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Command to set custom goodbye message"""
+    if not await is_group_admin(update, context):
+        await update.message.reply_text("❌ You need to be admin to use this command")
+        return
+    
+    if not context.args:
+        await update.message.reply_text("ℹ️ Usage: /setgoodbye Your goodbye message (use {mention}, {chat_title}, etc.)")
+        return
+    
+    goodbye_msg = ' '.join(context.args)
+    context.chat_data['goodbye_msg'] = goodbye_msg
+    await update.message.reply_text("✅ Goodbye message updated!")
+
+
+async def show_welcome(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Command to show current welcome message"""
+    welcome_msg = context.chat_data.get('welcome_msg', DEFAULT_WELCOME_MSG)
+    await update.message.reply_text(f"Current welcome message:\n\n{welcome_msg}")
+
+
+async def show_goodbye(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Command to show current goodbye message"""
+    goodbye_msg = context.chat_data.get('goodbye_msg', DEFAULT_GOODBYE_MSG)
+    await update.message.reply_text(f"Current goodbye message:\n\n{goodbye_msg}")
+
+
+async def auto_upgrade_group(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        await update.message.reply_text("🔄 Auto-upgrading group...")
+        await context.bot.leave_chat(update.effective_chat.id)
+    except Exception as e:
+        await update.message.reply_text(f"⚠️ Upgrade failed: {e}")
+
+
+async def is_group_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    """Check if the user is an admin in the group"""
+    if not update.effective_chat or not update.effective_user:
+        return False
+    
+    admins = await context.bot.get_chat_administrators(update.effective_chat.id)
+    return any(admin.user.id == update.effective_user.id for admin in admins)
+
+
+async def get_target_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Fixed username targeting that actually works"""
+    try:
+        # 1. Check if replying to a message
+        if update.message.reply_to_message:
+            return update.message.reply_to_message.from_user
+
+        # 2. Check if command has arguments
+        if not context.args:
+            await update.message.reply_text(
+                "ℹ️ Please reply to a user or specify @username/user_id",
                 parse_mode="HTML"
             )
-            
-            # Cancel auto-kick job
-            for job in context.job_queue.get_jobs_by_name(f"captcha_kick_{chat_id}_{user_id}"):
-                job.schedule_removal()
-        else:
-            await update.message.reply_text("❌ Wrong answer! Try again.")
-    except ValueError:
-        await update.message.reply_text("Please send a number only!")
+            return None
 
-async def auto_kick_user(context: ContextTypes.DEFAULT_TYPE):
-    """Auto-kick users who don't solve CAPTCHA"""
-    job = context.job
-    chat_id, user_id = job.data
-    
-    if chat_id not in PENDING_VERIFICATION or user_id not in PENDING_VERIFICATION[chat_id]:
-        return
-    
-    try:
-        # Kick user
-        await context.bot.ban_chat_member(
-            chat_id=chat_id,
-            user_id=user_id,
-            until_date=datetime.now() + timedelta(seconds=30)  # Temp ban
+        target = context.args[0].strip()
         
-        # Delete CAPTCHA message
-        try:
-            await context.bot.delete_message(
-                chat_id=chat_id,
-                message_id=PENDING_VERIFICATION[chat_id][user_id]["msg_id"]
-            )
-        except:
-            pass
-        
-        # Notify group
-        await context.bot.send_message(
-            chat_id=chat_id,
-            text=f"❌ User was removed for not completing verification."
-        )
+        # 3. Handle @username mentions
+        if target.startswith('@'):
+            username = target[1:].lower()  # Remove @ and make lowercase
+            
+            logger.info(f"Searching for username: @{username}")
+            
+            try:
+                # First try with get_chat_member if we have a direct reference
+                try:
+                    member = await context.bot.get_chat_member(
+                        chat_id=update.effective_chat.id,
+                        user_id=target
+                    )
+                    return member.user
+                except Exception as e:
+                    logger.debug(f"Direct username lookup failed, trying full scan: {e}")
+
+                # Fallback to scanning members
+                found_user = None
+                member_count = 0
+                
+                async for member in context.bot.get_chat_members(update.effective_chat.id):
+                    member_count += 1
+                    user = member.user
+                    if user.username and user.username.lower() == username:
+                        found_user = user
+                        break
+                
+                if found_user:
+                    logger.info(f"Found user after scanning {member_count} members")
+                    return found_user
+                
+                logger.warning(f"Scanned {member_count} members, username not found")
+                await update.message.reply_text(f"❌ @{username} not found in this chat")
+                return None
+
+            except Exception as e:
+                logger.error(f"Username search error: {e}")
+                await update.message.reply_text("⚠️ Error searching for user")
+                return None
+
+        # 4. Handle numeric IDs
+        if target.isdigit():
+            try:
+                member = await context.bot.get_chat_member(
+                    chat_id=update.effective_chat.id,
+                    user_id=int(target)
+                )
+                return member.user
+            except Exception as e:
+                logger.error(f"ID lookup failed: {e}")
+                await update.message.reply_text(f"❌ User ID {target} not found")
+                return None
+
+        await update.message.reply_text("⚠️ Invalid target format")
+        return None
+
     except Exception as e:
-        print(f"Failed to kick user: {e}")
-    finally:
-        # Clean up
-        if chat_id in PENDING_VERIFICATION and user_id in PENDING_VERIFICATION[chat_id]:
-            del PENDING_VERIFICATION[chat_id][user_id]
+        logger.error(f"Targeting crashed: {e}", exc_info=True)
+        await update.message.reply_text("⚠️ Targeting error occurred")
+        return None
+
 
 def setup_group_handlers(app):
-    # New member handler
     app.add_handler(MessageHandler(
         filters.StatusUpdate.NEW_CHAT_MEMBERS,
         new_chat_members
     ))
-    
-    # Left member handler
     app.add_handler(MessageHandler(
         filters.StatusUpdate.LEFT_CHAT_MEMBER,
         left_chat_member
     ))
-    
-    # CAPTCHA button handler
-    app.add_handler(CallbackQueryHandler(
-        handle_captcha_button,
-        pattern="^captcha_"
-    ))
-    
-    # CAPTCHA answer handler
-    app.add_handler(MessageHandler(
-        filters.TEXT & ~filters.COMMAND,
-        verify_captcha_answer
-    ))
+    # Add command handlers
+    app.add_handler(CommandHandler("setwelcome", set_welcome))
+    app.add_handler(CommandHandler("setgoodbye", set_goodbye))
+    app.add_handler(CommandHandler("welcome", show_welcome))
+    app.add_handler(CommandHandler("goodbye", show_goodbye))
