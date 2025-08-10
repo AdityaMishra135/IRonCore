@@ -182,7 +182,11 @@ async def group_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         # Get creation date (approximate)
         oldest_member = min(members, key=lambda u: u.id, default=None)
-        creation_date = datetime.fromtimestamp(((oldest_member.id if oldest_member else 0) >> 22) + 1288834974657 if oldest_member else "Unknown"
+        if oldest_member:
+            creation_timestamp = ((oldest_member.id >> 22) + 1288834974657
+            creation_date = datetime.fromtimestamp(creation_timestamp)
+        else:
+            creation_date = "Unknown"
         
         # Prepare response
         response = (
@@ -211,7 +215,6 @@ async def group_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Group info error: {e}")
         await update.message.reply_text("⚠️ Failed to get group info. Please try again later.")
-
 
 def setup_group_handlers(application):
     """Set up all group-related handlers"""
