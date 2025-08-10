@@ -151,110 +151,83 @@ async def is_group_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 
 async def get_target_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Ultimate group member targeting that actually works"""
+    """Fully working group member lookup by username"""
     try:
         chat = update.effective_chat
-        if not chat:
-            await update.message.reply_text("❌ This command only works in groups/chats")
+        if not chat or chat.type == "private":
+            await update.message.reply_text("❌ This command only works in groups")
             return None
 
-        # 1. First check if replying to a message (most reliable)
+        # 1. Check if replying to a message (most reliable)
         if update.message.reply_to_message:
             return update.message.reply_to_message.from_user
 
         # 2. Require exactly one argument
-        if not context.args or len(context.args) > 1:
+        if not context.args or len(context.args) != 1:
             await update.message.reply_text(
-                "🔍 <b>How to find users:</b>\n\n"
-                "1. Reply to user's message with /info\n"
-                "2. /info @username (exact match)\n"
-                "3. /info userid\n\n"
-                "<i>Note: Usernames are case-sensitive in groups</i>",
+                "🔍 <b>Usage:</b> /info @username\n"
+                "or reply to user's message with /info",
                 parse_mode="HTML"
             )
             return None
 
-        target = context.args[0].strip()
+        target = context.args[0].strip().lstrip('@')
         
-        # 3. Handle numeric IDs (always works if user is in group)
-        if target.isdigit():
-            try:
-                member = await context.bot.get_chat_member(chat.id, int(target))
-                return member.user
-            except Exception:
-                await update.message.reply_text(
-                    f"❌ User ID <code>{target}</code> not found in this group",
-                    parse_mode="HTML"
-                )
-                return None
+        # 3. Get ALL group members (this is the key part)
+        members = []
+        async for member in context.bot.get_chat_members(chat.id):
+            user = member.user
+            members.append({
+                'user_obj': user,
+                'username': user.username.lower() if user.username else None,
+                'full_name': f"{user.first_name or ''} {user.last_name or ''}".strip().lower()
+            })
 
-        # 4. Handle username mentions (EXACT match required for groups)
-        username = target.lstrip('@')  # Remove @ if present
+        # 4. Search through members (prioritize exact matches)
+        exact_match = None
+        case_insensitive_match = None
         
-        # SPECIAL CASE: If targeting the bot itself
-        if username.lower() == context.bot.username.lower():
-            return context.bot.bot
-
-        # Get ALL group members first
-        try:
-            all_members = []
-            async for member in context.bot.get_chat_members(chat.id):
-                all_members.append(member.user)
+        for member in members:
+            # Check exact username match (case sensitive)
+            if member['user_obj'].username == target:
+                return member['user_obj']
                 
-            # Check for EXACT username match (case-sensitive!)
-            for user in all_members:
-                if user.username and user.username == username:  # Exact match
-                    return user
-                    
-            # If no exact match, try case-insensitive
-            for user in all_members:
-                if user.username and user.username.lower() == username.lower():
-                    await update.message.reply_text(
-                        f"ℹ️ Found @{user.username} (case mismatch)\n"
-                        "In groups, usernames must match exactly",
-                        parse_mode="HTML"
-                    )
-                    return user
+            # Check case-insensitive username match
+            if member['username'] == target.lower():
+                case_insensitive_match = member['user_obj']
+                
+            # Check name match
+            if member['full_name'] == target.lower():
+                case_insensitive_match = member['user_obj']
 
-            # Final fallback: check name strings
-            for user in all_members:
-                full_name = f"{user.first_name or ''} {user.last_name or ''}".strip()
-                if full_name.lower() == username.lower():
-                    return user
-
+        # 5. Handle the search results
+        if case_insensitive_match:
             await update.message.reply_text(
-                f"❌ @{username} not found in this group\n\n"
-                "<b>Possible reasons:</b>\n"
-                "• User left the group\n"
-                "• Username changed\n"
-                "• Typo in username\n"
-                "• User never joined\n\n"
-                "<b>Try:</b>\n"
-                "1. Reply to user's message\n"
-                "2. Use exact @username\n"
-                "3. Ask them to type something",
+                f"ℹ️ Found similar user: @{case_insensitive_match.username}\n"
+                "Note: Usernames in groups are case-sensitive",
                 parse_mode="HTML"
             )
-            return None
-            
-        except Exception as e:
-            logger.error(f"Group member search failed: {str(e)}")
-            await update.message.reply_text(
-                "⚠️ Failed to search group members\n"
-                "Please try:\n"
-                "1. Replying to their message\n"
-                "2. Using their exact @username\n"
-                "3. Using their numeric ID",
-                parse_mode="HTML"
-            )
-            return None
+            return case_insensitive_match
+
+        await update.message.reply_text(
+            f"❌ @{target} not found in this group\n\n"
+            "<b>Possible reasons:</b>\n"
+            "• User left the group\n"
+            "• Username changed\n"
+            "• Typo in username\n\n"
+            "<b>Try:</b>\n"
+            "1. Reply to user's message\n"
+            "2. Check exact username case\n"
+            "3. Use /info without arguments for help",
+            parse_mode="HTML"
+        )
+        return None
 
     except Exception as e:
-        logger.error(f"CRITICAL targeting error: {str(e)}", exc_info=True)
+        logger.error(f"User lookup failed: {str(e)}")
         await update.message.reply_text(
-            "🚨 System error occurred\n"
-            "Please contact admin with this info:\n"
-            f"Error: {type(e).__name__}",
+            "⚠️ Error searching group members\n"
+            "Please try again or contact admin",
             parse_mode="HTML"
         )
         return None
