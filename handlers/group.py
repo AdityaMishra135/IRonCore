@@ -180,19 +180,10 @@ async def group_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
             elif user.is_bot:
                 bots.append(user)
         
-        # Get creation date (approximate)
-        oldest_member = min(members, key=lambda u: u.id, default=None)
-        if oldest_member:
-            creation_timestamp = ((oldest_member.id >> 22) + 1288834974657
-            creation_date = datetime.fromtimestamp(creation_timestamp)
-        else:
-            creation_date = "Unknown"
-        
         # Prepare response
         response = (
             f"📊 <b>Group Info: {chat.title}</b>\n"
             f"🆔 ID: <code>{chat.id}</code>\n"
-            f"📅 Created: {creation_date.strftime('%Y-%m-%d') if isinstance(creation_date, datetime) else creation_date}\n"
             f"👥 Members: {len(members)}\n"
             f"👑 Admins: {len(admins)}\n"
             f"🤖 Bots: {len(bots)}\n"
@@ -215,6 +206,7 @@ async def group_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Group info error: {e}")
         await update.message.reply_text("⚠️ Failed to get group info. Please try again later.")
+
 
 def setup_group_handlers(application):
     """Set up all group-related handlers"""
