@@ -5,6 +5,7 @@ import logging
 import fcntl
 from pathlib import Path
 from dotenv import load_dotenv
+from telegram.ext import Application
 from telegram.ext import ApplicationBuilder
 from handlers.admin import setup_admin_handlers
 from handlers.group import setup_group_handlers
