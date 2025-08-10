@@ -149,6 +149,69 @@ async def is_group_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         logger.error(f"Admin check failed: {e}")
         return False
 
+async def group_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show detailed group information"""
+    try:
+        chat = update.effective_chat
+        if chat.type == "private":
+            await update.message.reply_text("❌ This command only works in groups")
+            return
+
+        # Get basic chat info
+        chat_info = await context.bot.get_chat(chat.id)
+        
+        # Get all members
+        members = []
+        admins = []
+        bots = []
+        restricted = []
+        banned = []
+        
+        async for member in context.bot.get_chat_members(chat.id, limit=10000):
+            user = member.user
+            members.append(user)
+            
+            if member.status == "administrator":
+                admins.append(user)
+            elif member.status == "restricted":
+                restricted.append(user)
+            elif member.status == "kicked":
+                banned.append(user)
+            elif user.is_bot:
+                bots.append(user)
+        
+        # Get creation date (approximate)
+        oldest_member = min(members, key=lambda u: u.id, default=None)
+        creation_date = datetime.fromtimestamp(((oldest_member.id if oldest_member else 0) >> 22) + 1288834974657) if oldest_member else "Unknown"
+        
+        # Prepare response
+        response = (
+            f"📊 <b>Group Info: {chat.title}</b>\n"
+            f"🆔 ID: <code>{chat.id}</code>\n"
+            f"📅 Created: {creation_date.strftime('%Y-%m-%d') if isinstance(creation_date, datetime) else creation_date}\n"
+            f"👥 Members: {len(members)}\n"
+            f"👑 Admins: {len(admins)}\n"
+            f"🤖 Bots: {len(bots)}\n"
+            f"🔇 Restricted: {len(restricted)}\n"
+            f"🚫 Banned: {len(banned)}\n\n"
+            f"ℹ️ Type: {chat.type.capitalize()}\n"
+            f"📝 Description: {chat_info.description or 'None'}\n"
+            f"📌 Pinned Message: {'Yes' if chat_info.pinned_message else 'No'}\n"
+            f"🚪 Invite Link: {'Available' if chat_info.invite_link else 'None'}"
+        )
+        
+        # Add admin list if not too many
+        if len(admins) <= 20:
+            response += "\n\n<b>Admins:</b>\n" + "\n".join(
+                f"• {admin.mention_html()}" for admin in admins
+            )
+        
+        await update.message.reply_text(response, parse_mode="HTML")
+        
+    except Exception as e:
+        logger.error(f"Group info error: {e}")
+        await update.message.reply_text("⚠️ Failed to get group info. Please try again later.")
+        
 
 async def get_target_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """100% Working Group Member Lookup"""
@@ -224,3 +287,4 @@ def setup_group_handlers(application):
     application.add_handler(CommandHandler("setgoodbye", set_goodbye))
     application.add_handler(CommandHandler("welcome", show_welcome))
     application.add_handler(CommandHandler("goodbye", show_goodbye))
+application.add_handler(CommandHandler("ginfo", group_info)) 
