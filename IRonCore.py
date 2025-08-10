@@ -7,7 +7,7 @@ from telegram.ext import ApplicationBuilder
 from handlers.admin import setup_admin_handlers
 from handlers.group import setup_group_handlers
 from handlers.info import setup_info_handler
-from handlers.web import run_web_server
+from handlers.web_server import run_web_server
 
 # Load environment variables
 load_dotenv()
