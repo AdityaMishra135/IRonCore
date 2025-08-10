@@ -149,7 +149,7 @@ async def is_group_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         logger.error(f"Admin check failed: {e}")
         return False
 
-async def get_target_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
 async def get_target_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Ultimate group member targeting that actually works"""
     try:
