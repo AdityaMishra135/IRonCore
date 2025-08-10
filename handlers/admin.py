@@ -1,13 +1,20 @@
 import time
 from telegram import Update, ChatPermissions
-from telegram.ext import ContextTypes, CommandHandler, Application 
 from datetime import datetime
+from telegram.ext import (
+    ContextTypes, 
+    CommandHandler,
+    Application,
+    CallbackContext,
+    JobQueue
+)
 from handlers.group import is_group_admin, get_target_user
 from database.database import (
     add_mute_record,
     get_active_mutes,
     remove_mute_record
 )
+
 
 # Warning storage (replace with database in production)
 WARNINGS_DB = {}
@@ -335,7 +342,7 @@ async def unmute_job(context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Failed to automatically unmute {user_id} in {chat_id}: {e}")
 
-async def restore_mutes(application: Application):
+async def restore_mutes(context: CallbackContext):
     """Restore active mutes when bot starts"""
     try:
         active_mutes = get_active_mutes()
@@ -344,7 +351,7 @@ async def restore_mutes(application: Application):
         for chat_id, user_id, until_date in active_mutes:
             remaining = until_date - current_time
             if remaining > 0:
-                application.job_queue.run_once(
+                context.job_queue.run_once(
                     callback=unmute_job,
                     when=remaining,
                     data={
@@ -353,12 +360,12 @@ async def restore_mutes(application: Application):
                     },
                     name=f"unmute_{chat_id}_{user_id}"
                 )
-                logger.info(f"Scheduled unmute for {user_id} in {chat_id} in {remaining} seconds")
+                logging.info(f"Scheduled unmute for {user_id} in {chat_id} in {remaining} seconds")
             else:
                 # Mute already expired, remove from database
                 remove_mute_record(chat_id, user_id)
     except Exception as e:
-        logger.error(f"Error restoring mutes: {e}")
+        logging.error(f"Error restoring mutes: {e}")
 
 
 def parse_duration(time_str: str) -> int:
@@ -487,5 +494,7 @@ def setup_admin_handlers(app):
     app.add_handler(CommandHandler("kick", kick_user))
     app.add_handler(CommandHandler("mute", mute_user))
     app.add_handler(CommandHandler("unmute", unmute_user))
-    app.add_handler(CommandHandler("restoremutes", lambda u, c: restore_mutes(app)))
+    # Restore mutes on startup
+    app.job_queue.run_once(restore_mutes, when=0)
+
 
