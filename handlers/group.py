@@ -153,34 +153,40 @@ async def is_group_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 async def get_target_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """100% Working Group Member Lookup"""
     try:
-        # 1. Only works in groups
         chat = update.effective_chat
         if not chat or chat.type == "private":
-            await update.message.reply_text("🚫 Command only works in groups")
+            await update.message.reply_text("❌ This command only works in groups")
             return None
 
-        # 2. Best method: reply to user's message
+        # Best method: reply to user's message
         if update.message.reply_to_message:
             return update.message.reply_to_message.from_user
 
-        # 3. Must use @username format
+        # Require @username format
         if not context.args or not context.args[0].startswith('@'):
-            await update.message.reply_text("💡 Format: /info @username")
+            await update.message.reply_text(
+                "🔍 Usage: /info @username\n"
+                "or reply to user's message with /info"
+            )
             return None
 
         username = context.args[0][1:]  # Remove @
 
-        # 4. THE KEY PART: Scan all members
-        member_count = 0
-        async for member in context.bot.get_chat_members(chat.id):
-            member_count += 1
-            user = member.user
-            if user.username and user.username == username:  # Exact match
-                return user
+        # SPECIAL CASE: Bot's own username
+        if username.lower() == context.bot.username.lower():
+            return context.bot.bot
 
-        # 5. If we get here, user wasn't found
+        # Get ALL group members (this is the reliable way)
+        members = []
+        async for member in context.bot.get_chat_members(chat.id):
+            user = member.user
+            if user.username and user.username.lower() == username.lower():
+                return user
+            members.append(user)
+
+        # If we get here, user wasn't found
         await update.message.reply_text(
-            f"🔍 Scanned {member_count} members\n"
+            f"🔍 Scanned {len(members)} members\n"
             f"❌ @{username} not found\n\n"
             "ℹ️ Possible reasons:\n"
             "- User left the group\n"
@@ -195,9 +201,14 @@ async def get_target_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return None
 
     except Exception as e:
-        await update.message.reply_text("⚠️ Error: Please try again later")
-        logger.error(f"Lookup failed: {e}")
+        logger.error(f"User lookup error: {e}")
+        await update.message.reply_text(
+            "⚠️ Temporary search error\n"
+            "Please try again in 10 seconds",
+            parse_mode="HTML"
+        )
         return None
+
 
 def setup_group_handlers(application):
     """Set up all group-related handlers"""
