@@ -1,8 +1,16 @@
 import os
+import logging
 from telegram import Update
-from telegram.ext import ContextTypes, MessageHandler, filters, CommandHandler  # Added CommandHandler import
+from telegram.ext import ContextTypes, MessageHandler, filters, CommandHandler
 
-# Add these constants at the top of your file
+# Set up logging
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
+logger = logging.getLogger(__name__)
+
+# Constants
 DEFAULT_WELCOME_MSG = "👋 Welcome {mention} to {chat_title}!"
 DEFAULT_GOODBYE_MSG = "👋 {mention} has left {chat_title}!"
 
@@ -11,10 +19,10 @@ async def new_chat_members(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if any(member.id == context.bot.id for member in update.message.new_chat_members):
         if update.effective_chat.type == "group":
             await auto_upgrade_group(update, context)
-    else:
-        # Handle user join greetings
-        await send_welcome_message(update, context)
-
+        return  # Don't proceed further if bot was added
+    
+    # Handle user join greetings
+    await send_welcome_message(update, context)
 
 async def send_welcome_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Send welcome message for new members"""
@@ -34,14 +42,12 @@ async def send_welcome_message(update: Update, context: ContextTypes.DEFAULT_TYP
             )
             await update.message.reply_text(text, parse_mode='HTML')
     except Exception as e:
-        print(f"Error sending welcome message: {e}")
-
+        logger.error(f"Error sending welcome message: {e}")
 
 async def left_chat_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle member leaving the chat"""
     if update.message.left_chat_member.id != context.bot.id:
         await send_goodbye_message(update, context)
-
 
 async def send_goodbye_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Send goodbye message for leaving members"""
@@ -61,8 +67,7 @@ async def send_goodbye_message(update: Update, context: ContextTypes.DEFAULT_TYP
         )
         await update.message.reply_text(text, parse_mode='HTML')
     except Exception as e:
-        print(f"Error sending goodbye message: {e}")
-
+        logger.error(f"Error sending goodbye message: {e}")
 
 async def set_welcome(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Command to set custom welcome message"""
@@ -78,7 +83,6 @@ async def set_welcome(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.chat_data['welcome_msg'] = welcome_msg
     await update.message.reply_text("✅ Welcome message updated!")
 
-
 async def set_goodbye(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Command to set custom goodbye message"""
     if not await is_group_admin(update, context):
@@ -93,38 +97,39 @@ async def set_goodbye(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.chat_data['goodbye_msg'] = goodbye_msg
     await update.message.reply_text("✅ Goodbye message updated!")
 
-
 async def show_welcome(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Command to show current welcome message"""
     welcome_msg = context.chat_data.get('welcome_msg', DEFAULT_WELCOME_MSG)
     await update.message.reply_text(f"Current welcome message:\n\n{welcome_msg}")
-
 
 async def show_goodbye(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Command to show current goodbye message"""
     goodbye_msg = context.chat_data.get('goodbye_msg', DEFAULT_GOODBYE_MSG)
     await update.message.reply_text(f"Current goodbye message:\n\n{goodbye_msg}")
 
-
 async def auto_upgrade_group(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Automatically upgrade group to supergroup"""
     try:
         await update.message.reply_text("🔄 Auto-upgrading group...")
         await context.bot.leave_chat(update.effective_chat.id)
     except Exception as e:
+        logger.error(f"Upgrade failed: {e}")
         await update.message.reply_text(f"⚠️ Upgrade failed: {e}")
-
 
 async def is_group_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     """Check if the user is an admin in the group"""
     if not update.effective_chat or not update.effective_user:
         return False
     
-    admins = await context.bot.get_chat_administrators(update.effective_chat.id)
-    return any(admin.user.id == update.effective_user.id for admin in admins)
-
+    try:
+        admins = await context.bot.get_chat_administrators(update.effective_chat.id)
+        return any(admin.user.id == update.effective_user.id for admin in admins)
+    except Exception as e:
+        logger.error(f"Admin check failed: {e}")
+        return False
 
 async def get_target_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Fixed username targeting that actually works"""
+    """Helper function to get target user from message"""
     try:
         # 1. Check if replying to a message
         if update.message.reply_to_message:
@@ -142,37 +147,25 @@ async def get_target_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         # 3. Handle @username mentions
         if target.startswith('@'):
-            username = target[1:].lower()  # Remove @ and make lowercase
-            
-            logger.info(f"Searching for username: @{username}")
+            username = target[1:].lower()
             
             try:
-                # First try with get_chat_member if we have a direct reference
+                # Try with get_chat_member first
                 try:
                     member = await context.bot.get_chat_member(
                         chat_id=update.effective_chat.id,
                         user_id=target
                     )
                     return member.user
-                except Exception as e:
-                    logger.debug(f"Direct username lookup failed, trying full scan: {e}")
+                except Exception:
+                    pass
 
                 # Fallback to scanning members
-                found_user = None
-                member_count = 0
-                
                 async for member in context.bot.get_chat_members(update.effective_chat.id):
-                    member_count += 1
                     user = member.user
                     if user.username and user.username.lower() == username:
-                        found_user = user
-                        break
+                        return user
                 
-                if found_user:
-                    logger.info(f"Found user after scanning {member_count} members")
-                    return found_user
-                
-                logger.warning(f"Scanned {member_count} members, username not found")
                 await update.message.reply_text(f"❌ @{username} not found in this chat")
                 return None
 
@@ -202,18 +195,17 @@ async def get_target_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⚠️ Targeting error occurred")
         return None
 
-
-def setup_group_handlers(app):
-    app.add_handler(MessageHandler(
+def setup_group_handlers(application):
+    """Set up all group-related handlers"""
+    application.add_handler(MessageHandler(
         filters.StatusUpdate.NEW_CHAT_MEMBERS,
         new_chat_members
     ))
-    app.add_handler(MessageHandler(
+    application.add_handler(MessageHandler(
         filters.StatusUpdate.LEFT_CHAT_MEMBER,
         left_chat_member
     ))
-    # Add command handlers
-    app.add_handler(CommandHandler("setwelcome", set_welcome))
-    app.add_handler(CommandHandler("setgoodbye", set_goodbye))
-    app.add_handler(CommandHandler("welcome", show_welcome))
-    app.add_handler(CommandHandler("goodbye", show_goodbye))
+    application.add_handler(CommandHandler("setwelcome", set_welcome))
+    application.add_handler(CommandHandler("setgoodbye", set_goodbye))
+    application.add_handler(CommandHandler("welcome", show_welcome))
+    application.add_handler(CommandHandler("goodbye", show_goodbye))
