@@ -3,6 +3,7 @@ import asyncio
 import multiprocessing
 import logging
 from dotenv import load_dotenv
+from telegram.ext import Application
 from telegram.ext import ApplicationBuilder
 from handlers.admin import setup_admin_handlers
 from handlers.group import setup_group_handlers
@@ -19,6 +20,12 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+async def post_init(application: Application):
+    """Run after the bot is initialized"""
+    await restore_mutes(application)
+
+
+
 async def main():
      # Initialize database first
     from database.database import init_db
@@ -32,7 +39,7 @@ async def main():
     setup_admin_handlers(app)
     setup_info_handler(app)
     
-    app.run_polling(on_startup=restore_mutes)
+    app.run_polling(post_init=post_init)
     logger.info("Starting bot in %s environment", os.getenv("ENVIRONMENT"))
     await app.initialize()
     await app.start()
