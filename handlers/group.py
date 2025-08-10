@@ -149,63 +149,65 @@ async def is_group_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         logger.error(f"Admin check failed: {e}")
         return False
 
-async def group_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Show detailed group information"""
+
+async def get_target_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """100% Working Group Member Lookup"""
     try:
         chat = update.effective_chat
-        if chat.type == "private":
+        if not chat or chat.type == "private":
             await update.message.reply_text("❌ This command only works in groups")
-            return
+            return None
 
-        # Get basic chat info
-        chat_info = await context.bot.get_chat(chat.id)
-        
-        # Get all members
-        members = []
-        admins = []
-        bots = []
-        restricted = []
-        banned = []
-        
-        async for member in context.bot.get_chat_members(chat.id, limit=10000):
-            user = member.user
-            members.append(user)
-            
-            if member.status == "administrator":
-                admins.append(user)
-            elif member.status == "restricted":
-                restricted.append(user)
-            elif member.status == "kicked":
-                banned.append(user)
-            elif user.is_bot:
-                bots.append(user)
-        
-        # Prepare response
-        response = (
-            f"📊 <b>Group Info: {chat.title}</b>\n"
-            f"🆔 ID: <code>{chat.id}</code>\n"
-            f"👥 Members: {len(members)}\n"
-            f"👑 Admins: {len(admins)}\n"
-            f"🤖 Bots: {len(bots)}\n"
-            f"🔇 Restricted: {len(restricted)}\n"
-            f"🚫 Banned: {len(banned)}\n\n"
-            f"ℹ️ Type: {chat.type.capitalize()}\n"
-            f"📝 Description: {chat_info.description or 'None'}\n"
-            f"📌 Pinned Message: {'Yes' if chat_info.pinned_message else 'No'}\n"
-            f"🚪 Invite Link: {'Available' if chat_info.invite_link else 'None'}"
-        )
-        
-        # Add admin list if not too many
-        if len(admins) <= 20:
-            response += "\n\n<b>Admins:</b>\n" + "\n".join(
-                f"• {admin.mention_html()}" for admin in admins
+        # Best method: reply to user's message
+        if update.message.reply_to_message:
+            return update.message.reply_to_message.from_user
+
+        # Require @username format
+        if not context.args or not context.args[0].startswith('@'):
+            await update.message.reply_text(
+                "🔍 Usage: /info @username\n"
+                "or reply to user's message with /info"
             )
-        
-        await update.message.reply_text(response, parse_mode="HTML")
-        
+            return None
+
+        username = context.args[0][1:]  # Remove @
+
+        # SPECIAL CASE: Bot's own username
+        if username.lower() == context.bot.username.lower():
+            return context.bot.bot
+
+        # Get ALL group members (this is the reliable way)
+        members = []
+        async for member in context.bot.get_chat_members(chat.id):
+            user = member.user
+            if user.username and user.username.lower() == username.lower():
+                return user
+            members.append(user)
+
+        # If we get here, user wasn't found
+        await update.message.reply_text(
+            f"🔍 Scanned {len(members)} members\n"
+            f"❌ @{username} not found\n\n"
+            "ℹ️ Possible reasons:\n"
+            "- User left the group\n"
+            "- Username changed\n"
+            "- Typo in @username\n\n"
+            "💡 Try:\n"
+            "1. Reply to user's message\n"
+            "2. Check exact @username\n"
+            "3. Ask them to type something",
+            parse_mode="HTML"
+        )
+        return None
+
     except Exception as e:
-        logger.error(f"Group info error: {e}")
-        await update.message.reply_text("⚠️ Failed to get group info. Please try again later.")
+        logger.error(f"User lookup error: {e}")
+        await update.message.reply_text(
+            "⚠️ Temporary search error\n"
+            "Please try again in 10 seconds",
+            parse_mode="HTML"
+        )
+        return None
 
 
 def setup_group_handlers(application):
@@ -221,5 +223,4 @@ def setup_group_handlers(application):
     application.add_handler(CommandHandler("setwelcome", set_welcome))
     application.add_handler(CommandHandler("setgoodbye", set_goodbye))
     application.add_handler(CommandHandler("welcome", show_welcome))
-    application.add_handler(CommandHandler("goodbye", show_goodbye))
-    application.add_handler(CommandHandler("ginfo", group_info)) 
+    application.add_handler(CommandHandler("goodbye", show_goodbye)) add here feature when give /ginfo then show group info like build date ,total members,total admin,total bot, banned user list, muted user list
