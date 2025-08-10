@@ -1,17 +1,15 @@
 import sqlite3
 from datetime import datetime
-import os
 from pathlib import Path
 
-# Ensure database directory exists
-DB_DIR = Path(__file__).parent
-DB_DIR.mkdir(exist_ok=True)
-DATABASE_PATH = DB_DIR / "user_data.db"
+DB_PATH = Path("bot_data.db")
 
 def init_db():
-    """Initialize the database"""
-    with sqlite3.connect(DATABASE_PATH) as conn:
+    """Initialize the database with all required tables"""
+    with sqlite3.connect(DB_PATH) as conn:
         cursor = conn.cursor()
+        
+        # User join dates table
         cursor.execute("""
         CREATE TABLE IF NOT EXISTS user_join_dates (
             chat_id INTEGER,
@@ -20,11 +18,28 @@ def init_db():
             PRIMARY KEY (chat_id, user_id)
         )
         """)
+        
+        # Welcome messages table
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS welcome_messages (
+            chat_id INTEGER PRIMARY KEY,
+            message TEXT
+        )
+        """)
+        
+        # Goodbye messages table
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS goodbye_messages (
+            chat_id INTEGER PRIMARY KEY,
+            message TEXT
+        )
+        """)
+        
         conn.commit()
 
 def store_join_date(chat_id: int, user_id: int):
     """Store or update a user's join date"""
-    with sqlite3.connect(DATABASE_PATH) as conn:
+    with sqlite3.connect(DB_PATH) as conn:
         cursor = conn.cursor()
         cursor.execute("""
         INSERT OR REPLACE INTO user_join_dates (chat_id, user_id, join_date)
@@ -34,7 +49,7 @@ def store_join_date(chat_id: int, user_id: int):
 
 def get_join_date(chat_id: int, user_id: int) -> datetime:
     """Get a user's join date"""
-    with sqlite3.connect(DATABASE_PATH) as conn:
+    with sqlite3.connect(DB_PATH) as conn:
         cursor = conn.cursor()
         cursor.execute("""
         SELECT join_date FROM user_join_dates
@@ -42,6 +57,48 @@ def get_join_date(chat_id: int, user_id: int) -> datetime:
         """, (chat_id, user_id))
         result = cursor.fetchone()
         return datetime.fromisoformat(result[0]) if result else None
+
+def set_welcome_message(chat_id: int, message: str):
+    """Set welcome message for a chat"""
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+        INSERT OR REPLACE INTO welcome_messages (chat_id, message)
+        VALUES (?, ?)
+        """, (chat_id, message))
+        conn.commit()
+
+def get_welcome_message(chat_id: int) -> str:
+    """Get welcome message for a chat"""
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+        SELECT message FROM welcome_messages
+        WHERE chat_id = ?
+        """, (chat_id,))
+        result = cursor.fetchone()
+        return result[0] if result else None
+
+def set_goodbye_message(chat_id: int, message: str):
+    """Set goodbye message for a chat"""
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+        INSERT OR REPLACE INTO goodbye_messages (chat_id, message)
+        VALUES (?, ?)
+        """, (chat_id, message))
+        conn.commit()
+
+def get_goodbye_message(chat_id: int) -> str:
+    """Get goodbye message for a chat"""
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+        SELECT message FROM goodbye_messages
+        WHERE chat_id = ?
+        """, (chat_id,))
+        result = cursor.fetchone()
+        return result[0] if result else None
 
 # Initialize database when module loads
 init_db()
