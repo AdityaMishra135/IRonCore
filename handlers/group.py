@@ -1,6 +1,6 @@
 import os
 from telegram import Update
-from telegram.ext import ContextTypes, MessageHandler, filters
+from telegram.ext import ContextTypes, MessageHandler, filters, CommandHandler  # Added CommandHandler import
 
 # Add these constants at the top of your file
 DEFAULT_WELCOME_MSG = "👋 Welcome {mention} to {chat_title}!"
