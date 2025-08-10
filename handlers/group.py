@@ -182,7 +182,7 @@ async def group_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         # Get creation date (approximate)
         oldest_member = min(members, key=lambda u: u.id, default=None)
-        creation_date = datetime.fromtimestamp(((oldest_member.id if oldest_member else 0) >> 22) + 1288834974657) if oldest_member else "Unknown"
+        creation_date = datetime.fromtimestamp(((oldest_member.id if oldest_member else 0) >> 22) + 1288834974657 if oldest_member else "Unknown"
         
         # Prepare response
         response = (
@@ -211,66 +211,6 @@ async def group_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Group info error: {e}")
         await update.message.reply_text("⚠️ Failed to get group info. Please try again later.")
-        
-
-async def get_target_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """100% Working Group Member Lookup"""
-    try:
-        chat = update.effective_chat
-        if not chat or chat.type == "private":
-            await update.message.reply_text("❌ This command only works in groups")
-            return None
-
-        # Best method: reply to user's message
-        if update.message.reply_to_message:
-            return update.message.reply_to_message.from_user
-
-        # Require @username format
-        if not context.args or not context.args[0].startswith('@'):
-            await update.message.reply_text(
-                "🔍 Usage: /info @username\n"
-                "or reply to user's message with /info"
-            )
-            return None
-
-        username = context.args[0][1:]  # Remove @
-
-        # SPECIAL CASE: Bot's own username
-        if username.lower() == context.bot.username.lower():
-            return context.bot.bot
-
-        # Get ALL group members (this is the reliable way)
-        members = []
-        async for member in context.bot.get_chat_members(chat.id):
-            user = member.user
-            if user.username and user.username.lower() == username.lower():
-                return user
-            members.append(user)
-
-        # If we get here, user wasn't found
-        await update.message.reply_text(
-            f"🔍 Scanned {len(members)} members\n"
-            f"❌ @{username} not found\n\n"
-            "ℹ️ Possible reasons:\n"
-            "- User left the group\n"
-            "- Username changed\n"
-            "- Typo in @username\n\n"
-            "💡 Try:\n"
-            "1. Reply to user's message\n"
-            "2. Check exact @username\n"
-            "3. Ask them to type something",
-            parse_mode="HTML"
-        )
-        return None
-
-    except Exception as e:
-        logger.error(f"User lookup error: {e}")
-        await update.message.reply_text(
-            "⚠️ Temporary search error\n"
-            "Please try again in 10 seconds",
-            parse_mode="HTML"
-        )
-        return None
 
 
 def setup_group_handlers(application):
