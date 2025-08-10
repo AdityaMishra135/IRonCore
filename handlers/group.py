@@ -222,4 +222,4 @@ def setup_group_handlers(application):
     application.add_handler(CommandHandler("setgoodbye", set_goodbye))
     application.add_handler(CommandHandler("welcome", show_welcome))
     application.add_handler(CommandHandler("goodbye", show_goodbye))
-application.add_handler(CommandHandler("ginfo", group_info)) 
+    application.add_handler(CommandHandler("ginfo", group_info)) 
