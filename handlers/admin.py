@@ -220,26 +220,33 @@ async def mute_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Check if duration is provided
     if len(context.args) > 1:
         try:
-            time_str = "".join(context.args[1:]).lower().replace(" ", "")
-            seconds = parse_duration(time_str)
+            # Get the time string (handle cases like "/mute @user 1h" or "/mute 1h @user")
+            time_str = context.args[-1]  # Take the last argument as duration
             
-            if seconds is None:
-                await update.message.reply_text(
-                    "⚠️ Invalid duration format. Examples: 30s, 5m, 2h, 1d12h",
-                    parse_mode="HTML"
-                )
-                return
-            
-            # Validate maximum duration (30 days)
-            if seconds > 30 * 86400:
-                await update.message.reply_text(
-                    "⚠️ Maximum mute duration is 30 days",
-                    parse_mode="HTML"
-                )
-                return
+            # Check if it's a valid duration string
+            if any(c in time_str.lower() for c in ['s', 'm', 'h', 'd']):
+                seconds = parse_duration(time_str.lower())
                 
-            until_date = int(time.time()) + seconds
-            duration_str = format_duration(seconds)
+                if seconds is None or seconds <= 0:
+                    await update.message.reply_text(
+                        "⚠️ Invalid duration format. Examples: 30s, 5m, 2h, 1d12h",
+                        parse_mode="HTML"
+                    )
+                    return
+                
+                # Validate maximum duration (30 days)
+                if seconds > 30 * 86400:
+                    await update.message.reply_text(
+                        "⚠️ Maximum mute duration is 30 days",
+                        parse_mode="HTML"
+                    )
+                    return
+                    
+                until_date = int(time.time()) + seconds
+                duration_str = format_duration(seconds)
+            else:
+                # If no duration unit found, treat as permanent mute
+                pass
         except Exception as e:
             await update.message.reply_text(
                 f"⚠️ Error parsing duration: {str(e)}",
@@ -275,7 +282,7 @@ async def mute_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"- Target is admin/owner",
             parse_mode="HTML"
         )
-
+        
 def parse_duration(time_str: str) -> int:
     """Parse time duration string into seconds"""
     if not time_str:
@@ -283,37 +290,43 @@ def parse_duration(time_str: str) -> int:
         
     total_seconds = 0
     current_num = ""
+    found_units = False
     
     for char in time_str:
         if char.isdigit():
             current_num += char
         else:
             if not current_num:
-                return None
+                continue
                 
             try:
                 num = int(current_num)
             except ValueError:
                 return None
                 
+            char = char.lower()
             if char == 's':
                 total_seconds += num
+                found_units = True
             elif char == 'm':
                 total_seconds += num * 60
+                found_units = True
             elif char == 'h':
                 total_seconds += num * 3600
+                found_units = True
             elif char == 'd':
                 total_seconds += num * 86400
+                found_units = True
             else:
-                return None
+                # Ignore unknown units
+                pass
                 
             current_num = ""
     
-    # Handle case where string ends with number but no unit
-    if current_num:
-        return None
-        
-    return total_seconds if total_seconds > 0 else None
+    # If we found any time units, return the total
+    if found_units:
+        return total_seconds if total_seconds > 0 else None
+    return None
 
 def format_duration(seconds: int) -> str:
     """Format seconds into human-readable duration"""
