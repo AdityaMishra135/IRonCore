@@ -25,18 +25,19 @@ async def main():
     from database.database import init_db
     init_db()
 
-    # Build application with job queue
+    # Build application without automatic job queue
     app = (
         ApplicationBuilder()
         .token(os.getenv("BOT_TOKEN"))
         .concurrent_updates(True)
+        .job_queue(None)  # Disable automatic job queue creation
         .build()
     )
     
     # Setup handlers
     setup_group_handlers(app)
     setup_info_handler(app)
-    setup_admin_handlers(app)  # Must be called after job queue is initialized
+    setup_admin_handlers(app)
     
     logger.info("Starting bot in %s environment", os.getenv("ENVIRONMENT"))
     
