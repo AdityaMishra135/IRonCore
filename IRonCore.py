@@ -3,7 +3,6 @@ import asyncio
 import multiprocessing
 import logging
 from dotenv import load_dotenv
-from telegram.ext import Application
 from telegram.ext import ApplicationBuilder
 from handlers.admin import setup_admin_handlers
 from handlers.group import setup_group_handlers
@@ -20,33 +19,47 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-
 async def main():
-     # Initialize database first
+    """Main application entry point"""
+    # Initialize database first
     from database.database import init_db
     init_db()
 
-    """Main application entry point"""
-    app = ApplicationBuilder().token(os.getenv("BOT_TOKEN")).build()
+    # Build application with job queue
+    app = (
+        ApplicationBuilder()
+        .token(os.getenv("BOT_TOKEN"))
+        .concurrent_updates(True)
+        .build()
+    )
     
     # Setup handlers
     setup_group_handlers(app)
-    setup_admin_handlers(app)
     setup_info_handler(app)
+    setup_admin_handlers(app)  # Must be called after job queue is initialized
     
-
     logger.info("Starting bot in %s environment", os.getenv("ENVIRONMENT"))
-    await app.initialize()
-    await app.run_polling()
-    await app.start()
-    await app.updater.start_polling()
     
-    # Keep alive
-    while True:
-        await asyncio.sleep(3600)
+    try:
+        await app.initialize()
+        await app.start()
+        await app.updater.start_polling()
+        
+        # Keep the bot running
+        while True:
+            await asyncio.sleep(3600)
+    except (KeyboardInterrupt, SystemExit):
+        logger.info("Shutting down gracefully...")
+    finally:
+        if 'updater' in app.__dict__ and app.updater.running:
+            await app.updater.stop()
+        if app.running:
+            await app.stop()
+        if app.post_init:
+            await app.shutdown()
 
 if __name__ == "__main__":
-    # Start web server
+    # Start web server in separate process
     web_process = multiprocessing.Process(
         target=run_web_server,
         daemon=True
@@ -56,8 +69,6 @@ if __name__ == "__main__":
     # Run bot
     try:
         asyncio.run(main())
-    except KeyboardInterrupt:
-        logger.info("Shutting down gracefully...")
     finally:
         web_process.terminate()
         web_process.join()
