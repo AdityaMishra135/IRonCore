@@ -32,6 +32,7 @@ async def main():
     setup_admin_handlers(app)
     setup_info_handler(app)
     
+    app.run_polling(on_startup=restore_mutes)
     logger.info("Starting bot in %s environment", os.getenv("ENVIRONMENT"))
     await app.initialize()
     await app.start()
