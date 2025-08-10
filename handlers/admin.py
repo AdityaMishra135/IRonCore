@@ -219,7 +219,7 @@ async def kick_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 async def mute_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Restrict a user from sending messages with automatic unmute"""
+    """Restrict a user from sending messages"""
     if not await is_group_admin(update, context):
         return
     
@@ -233,7 +233,7 @@ async def mute_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Check if duration is provided
     if len(context.args) > 1:
         try:
-            time_str = context.args[-1]  # Take the last argument as duration
+            time_str = context.args[-1]
             seconds = parse_duration(time_str.lower())
             
             if seconds is None or seconds <= 0:
@@ -243,7 +243,6 @@ async def mute_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
                 return
             
-            # Validate maximum duration (30 days)
             if seconds > 30 * 86400:
                 await update.message.reply_text(
                     "⚠️ Maximum mute duration is 30 days",
@@ -256,18 +255,6 @@ async def mute_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             # Store mute record in database
             add_mute_record(update.effective_chat.id, target.id, until_date)
-            
-            # Schedule automatic unmute if job queue is available
-            if hasattr(context, 'job_queue') and context.job_queue is not None:
-                context.job_queue.run_once(
-                    callback=unmute_job,
-                    when=seconds,
-                    data={
-                        'chat_id': update.effective_chat.id,
-                        'user_id': target.id
-                    },
-                    name=f"unmute_{update.effective_chat.id}_{target.id}"
-                )
             
         except Exception as e:
             await update.message.reply_text(
@@ -305,6 +292,7 @@ async def mute_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"- Target is admin/owner",
             parse_mode="HTML"
         )
+
 
 async def unmute_job(context: ContextTypes.DEFAULT_TYPE):
     """Job to automatically unmute users"""
@@ -495,9 +483,12 @@ def setup_admin_handlers(app):
     app.add_handler(CommandHandler("mute", mute_user))
     app.add_handler(CommandHandler("unmute", unmute_user))
     # Restore mutes on startup
-    # Restore mutes on startup if job queue is available
+ # Only try to restore mutes if job queue is available
     if hasattr(app, 'job_queue') and app.job_queue is not None:
         app.job_queue.run_once(restore_mutes, when=0)
+    else:
+        logger.warning("JobQueue not available - timed mutes won't work")
+
 
 
 
